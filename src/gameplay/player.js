@@ -1,7 +1,7 @@
 // 플레이어: 이동, 구르기, 높이(계단/낙하), 섬 밖 추락
 import { Sprite, Container } from 'pixi.js';
-import { screenDirToWorld, worldDirToScreen, dir8FromScreen, toScreenX, toScreenY } from '../core/iso.js';
-import { DIR8_TO_SPRITE, ANIMS } from '../art/character.js';
+import { screenDirToWorld, toScreenX, toScreenY } from '../core/iso.js';
+import { HERO_ANIMS as ANIMS, HERO_W, HERO_H, HERO_AX, HERO_AY } from '../art/hero-model.js';
 
 const SPEED = 4.2; // 칸/초
 const ACCEL = 38;
@@ -29,7 +29,7 @@ export class Player {
     this.py = this.y;
     this.pz = this.z;
     this.grounded = true;
-    this.dir8 = 1;
+    this.yaw = 1; // 월드 8방향 (0=+x, 1=화면 아래쪽, ...)
     this.anim = 'idle';
     this.animT = 0;
     this.rollT = 0;
@@ -44,10 +44,10 @@ export class Player {
     this.events = []; // 'land', 'fall', 'roll' 등 (효과 연출용)
 
     this.view = new Container();
-    this.shadow = new Sprite(atlas.tex('shadow_m'));
+    this.shadow = new Sprite(atlas.tex('shadow_c'));
     this.shadow.anchor.set(0.5);
-    this.body = new Sprite(atlas.tex(`${prefix}_idle_DR_0`));
-    this.body.anchor.set(12 / 24, 29 / 32);
+    this.body = new Sprite(atlas.tex(`${prefix}_idle_1_0`));
+    this.body.anchor.set(HERO_AX / HERO_W, HERO_AY / HERO_H);
     this.view.addChild(this.shadow, this.body);
   }
 
@@ -83,8 +83,9 @@ export class Player {
       let dy = wy;
       if (mag === 0) {
         // 멈춰 있으면 바라보는 방향으로
-        const a = (this.dir8 * Math.PI) / 4;
-        [dx, dy] = screenDirToWorld(Math.cos(a), Math.sin(a));
+        const a = (this.yaw * Math.PI) / 4;
+        dx = Math.cos(a);
+        dy = Math.sin(a);
       }
       this.rollDx = dx;
       this.rollDy = dy;
@@ -168,10 +169,7 @@ export class Player {
 
     // 방향과 애니메이션
     const speed = Math.hypot(this.vx, this.vy);
-    if (speed > 0.3) {
-      const [sx, sy] = worldDirToScreen(this.vx, this.vy);
-      this.dir8 = dir8FromScreen(sx, sy);
-    }
+    if (speed > 0.3) this.yaw = ((Math.round(Math.atan2(this.vy, this.vx) / (Math.PI / 4)) % 8) + 8) % 8;
     let anim = 'idle';
     if (this.rollT > 0) anim = 'roll';
     else if (speed > 0.6) anim = 'walk';
@@ -189,11 +187,10 @@ export class Player {
     const x = this.px + (this.x - this.px) * alpha;
     const y = this.py + (this.y - this.py) * alpha;
     const z = this.pz + (this.z - this.pz) * alpha;
-    const fps = this.anim === 'walk' ? 11 : this.anim === 'roll' ? ANIMS.roll / ROLL_TIME : 3;
+    const fps = this.anim === 'walk' ? 13 : this.anim === 'roll' ? ANIMS.roll / ROLL_TIME : 3;
     const n = ANIMS[this.anim];
     const frame = this.anim === 'roll' ? Math.min(n - 1, Math.floor(this.animT * fps)) : Math.floor(this.animT * fps) % n;
-    const dirName = DIR8_TO_SPRITE[this.dir8];
-    this.body.texture = this.atlas.tex(`${this.prefix}_${this.anim}_${dirName}_${frame}`);
+    this.body.texture = this.atlas.tex(`${this.prefix}_${this.anim}_${this.yaw}_${frame}`);
     // 무적 깜빡임 (구르기 제외)
     this.body.alpha = this.iframe > 0 && this.rollT <= 0 ? (Math.floor(this.iframe * 20) % 2 ? 0.35 : 1) : 1;
 

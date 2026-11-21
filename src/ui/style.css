@@ -54,6 +54,14 @@ html, body {
   image-rendering: crisp-edges;
 }
 #ui { position: fixed; inset: 0; pointer-events: none; }
+/* 비네트: 화면 가장자리를 은은하게 어둡게 */
+#stage::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 46%, rgba(0, 0, 0, 0) 55%, rgba(10, 14, 30, 0.38) 100%);
+}
 #ui > * { pointer-events: auto; }
 .hidden { display: none !important; }
 
@@ -228,7 +236,6 @@ html, body {
 .touch-only { display: none; }
 body.is-touch .touch-only { display: inline; }
 body.is-touch .pc-only { display: none; }
-body.is-touch .help { bottom: auto; top: calc(66px + var(--safe-t)); }
 
 /* ---------- 터치 조작 ---------- */
 #touch { position: absolute; inset: 0; pointer-events: none; }

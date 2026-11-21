@@ -5,7 +5,7 @@ import { PixelCanvas } from './render/pixel.js';
 import { registerTiles } from './art/tiles.js';
 import { registerProps } from './art/props.js';
 import { registerSky } from './art/sky.js';
-import { registerCharacter } from './art/character.js';
+import { registerHero } from './art/hero-model.js';
 import { buildMeadow } from './world/meadow.js';
 import { WorldRenderer } from './render/world-renderer.js';
 import { Sky } from './render/sky.js';
@@ -17,7 +17,7 @@ import { toScreenX, toScreenY } from './core/iso.js';
 import { enableProtection } from './security/protect.js';
 
 const $ = (id) => document.getElementById(id);
-const VIEW_H = 300; // 화면에 보이는 게임 픽셀 높이 (기준)
+const VIEW_H = 240; // 화면에 보이는 게임 픽셀 높이 (기준)
 const STEP = 1 / 60;
 
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
@@ -100,7 +100,7 @@ class Game {
       ['지형 블록을 쌓는 중…', (a) => registerTiles(a)],
       ['나무를 심는 중…', (a) => registerProps(a)],
       ['구름을 띄우는 중…', (a) => registerSky(a)],
-      ['기사단원을 깨우는 중…', (a) => registerCharacter(a, 'hero')],
+      ['기사단원을 깨우는 중…', (a) => registerHero(a, 'hero')],
       ['효과 준비 중…', (a) => {
         const p1 = new PixelCanvas(1, 1);
         p1.px(0, 0, 0xffffff);
@@ -141,8 +141,10 @@ class Game {
       canvasW = Math.round(cssW * dpr);
       canvasH = Math.round(cssH * dpr);
     } else {
-      scale = this.quality === 'mid' ? 2 : 1;
-      k = Math.max(1, Math.round((cssH * dpr) / (VIEW_H * scale)));
+      // 게임 픽셀 1개 = 실제 화면 픽셀 total개 (정수). 보통 품질은 가능하면 2배 버퍼.
+      const total = Math.max(1, Math.round((cssH * dpr) / VIEW_H));
+      scale = this.quality === 'mid' && total % 2 === 0 ? 2 : 1;
+      k = total / scale;
       canvasW = Math.ceil((cssW * dpr) / k);
       canvasH = Math.ceil((cssH * dpr) / k);
     }
@@ -341,7 +343,7 @@ class Game {
       ty = c.y - 40 + Math.cos(tt * 0.09) * 40;
     } else {
       tx = ps.sx + this.player.vx * 3;
-      ty = ps.sy - 14 + this.player.vy * 2;
+      ty = ps.sy - 18 + this.player.vy * 2;
     }
     const k = 1 - Math.exp(-dt * (this.state === 'title' ? 1.5 : 7));
     this.cam.x += (tx - this.cam.x) * k;

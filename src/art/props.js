@@ -148,4 +148,5 @@ export function registerProps(atlas) {
   }
   atlas.add('shadow_m', makeShadow(16, 6), 8, 3);
   atlas.add('shadow_l', makeShadow(30, 10), 15, 5);
+  atlas.add('shadow_c', makeShadow(22, 9), 11, 4);
 }
