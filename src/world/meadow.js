@@ -179,7 +179,7 @@ export function buildMeadow(seed = 7) {
   place('bush', 12, 2);
   place('rock', 9, 2);
 
-  for (let n = 0; n < 70; n++) {
+  for (let n = 0; n < 150; n++) {
     const i = Math.floor(r() * W);
     const j = Math.floor(r() * H);
     if (!free(i, j)) continue;

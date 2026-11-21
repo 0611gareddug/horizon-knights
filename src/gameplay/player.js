@@ -1,7 +1,7 @@
 // 플레이어: 이동, 구르기, 높이(계단/낙하), 섬 밖 추락
 import { Sprite, Container } from 'pixi.js';
-import { screenDirToWorld, toScreenX, toScreenY } from '../core/iso.js';
-import { HERO_ANIMS as ANIMS, HERO_W, HERO_H, HERO_AX, HERO_AY } from '../art/hero-model.js';
+import { screenDirToWorld, worldDirToScreen, dir8FromScreen, toScreenX, toScreenY } from '../core/iso.js';
+import { CHAR_ANIMS as ANIMS, CHAR_W, CHAR_H, CHAR_AX, CHAR_AY, DIR8_TO_SPRITE } from '../art/character.js';
 
 const SPEED = 4.2; // 칸/초
 const ACCEL = 38;
@@ -44,10 +44,10 @@ export class Player {
     this.events = []; // 'land', 'fall', 'roll' 등 (효과 연출용)
 
     this.view = new Container();
-    this.shadow = new Sprite(atlas.tex('shadow_c'));
+    this.shadow = new Sprite(atlas.tex('shadow_m'));
     this.shadow.anchor.set(0.5);
-    this.body = new Sprite(atlas.tex(`${prefix}_idle_1_0`));
-    this.body.anchor.set(HERO_AX / HERO_W, HERO_AY / HERO_H);
+    this.body = new Sprite(atlas.tex(`${prefix}_idle_D_0`));
+    this.body.anchor.set(CHAR_AX / CHAR_W, CHAR_AY / CHAR_H);
     this.view.addChild(this.shadow, this.body);
   }
 
@@ -187,10 +187,13 @@ export class Player {
     const x = this.px + (this.x - this.px) * alpha;
     const y = this.py + (this.y - this.py) * alpha;
     const z = this.pz + (this.z - this.pz) * alpha;
-    const fps = this.anim === 'walk' ? 13 : this.anim === 'roll' ? ANIMS.roll / ROLL_TIME : 3;
+    const fps = this.anim === 'walk' ? 8 : this.anim === 'roll' ? ANIMS.roll / ROLL_TIME : 3;
     const n = ANIMS[this.anim];
     const frame = this.anim === 'roll' ? Math.min(n - 1, Math.floor(this.animT * fps)) : Math.floor(this.animT * fps) % n;
-    this.body.texture = this.atlas.tex(`${this.prefix}_${this.anim}_${this.yaw}_${frame}`);
+    const a = (this.yaw * Math.PI) / 4;
+    const [vsx, vsy] = worldDirToScreen(Math.cos(a), Math.sin(a));
+    const dirName = DIR8_TO_SPRITE[dir8FromScreen(vsx, vsy)];
+    this.body.texture = this.atlas.tex(`${this.prefix}_${this.anim}_${dirName}_${frame}`);
     // 무적 깜빡임 (구르기 제외)
     this.body.alpha = this.iframe > 0 && this.rollT <= 0 ? (Math.floor(this.iframe * 20) % 2 ? 0.35 : 1) : 1;
 

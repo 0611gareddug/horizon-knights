@@ -5,7 +5,7 @@ import { PixelCanvas } from './render/pixel.js';
 import { registerTiles } from './art/tiles.js';
 import { registerProps } from './art/props.js';
 import { registerSky } from './art/sky.js';
-import { registerHero } from './art/hero-model.js';
+import { registerCharacter } from './art/character.js';
 import { buildMeadow } from './world/meadow.js';
 import { WorldRenderer } from './render/world-renderer.js';
 import { Sky } from './render/sky.js';
@@ -100,7 +100,7 @@ class Game {
       ['지형 블록을 쌓는 중…', (a) => registerTiles(a)],
       ['나무를 심는 중…', (a) => registerProps(a)],
       ['구름을 띄우는 중…', (a) => registerSky(a)],
-      ['기사단원을 깨우는 중…', (a) => registerHero(a, 'hero')],
+      ['기사단원을 깨우는 중…', (a) => registerCharacter(a, 'hero')],
       ['효과 준비 중…', (a) => {
         const p1 = new PixelCanvas(1, 1);
         p1.px(0, 0, 0xffffff);
@@ -343,7 +343,7 @@ class Game {
       ty = c.y - 40 + Math.cos(tt * 0.09) * 40;
     } else {
       tx = ps.sx + this.player.vx * 3;
-      ty = ps.sy - 18 + this.player.vy * 2;
+      ty = ps.sy - 10 + this.player.vy * 2;
     }
     const k = 1 - Math.exp(-dt * (this.state === 'title' ? 1.5 : 7));
     this.cam.x += (tx - this.cam.x) * k;
