@@ -34,7 +34,7 @@
               <button class="btn" disabled title="준비 중">랭킹 <small>준비 중</small></button>
               <button class="btn" id="btn-title-settings">설정</button>
             </div>
-            <div class="title-foot">개발 버전 0.1 · 1단계 미리보기</div>
+            <div class="title-foot">개발 버전 0.2 · 2단계 전투 미리보기</div>
           </div>
         </div>
 
@@ -57,25 +57,37 @@
           <div class="fps hidden" id="fps"></div>
           <div class="help" id="help">
             <b>조작</b>
-            <span class="pc-only">WASD 이동 · Space 구르기 · Esc 일시정지</span>
-            <span class="touch-only">왼쪽 화면 드래그로 이동 · 구르기 버튼</span>
+            <span class="pc-only">WASD 이동 · 마우스 조준 · 좌클릭 공격 · Q E R 스킬 · F 궁극기 · Space 구르기 · 1 물약</span>
+            <span class="touch-only">왼쪽 드래그 이동 · 탭은 자동 조준 · 스킬을 끌면 직접 조준</span>
           </div>
+          <div class="elem hidden" id="elem"></div>
+          <div class="skillbar pc-only-flex" id="skillbar"></div>
         </div>
 
         <div id="touch" class="hidden">
           <div id="joy-zone"></div>
           <div id="joy" class="hidden"><div id="joy-knob"></div></div>
-          <div class="touch-buttons">
-            <button class="tbtn tbtn-big" id="tb-attack" disabled><span>공격</span><small>2단계</small></button>
-            <button class="tbtn tbtn-roll" id="tb-roll"><span>구르기</span></button>
+          <div class="touch-buttons" id="touch-buttons"></div>
+        </div>
+
+        <div id="class-select" class="screen dim hidden">
+          <div class="panel panel-wide">
+            <div class="panel-title">직업을 고르세요</div>
+            <div class="class-list" id="class-list"></div>
+            <button class="btn" id="btn-class-back">뒤로</button>
           </div>
         </div>
+
+        <div id="float"></div>
+        <div id="flash"></div>
+        <div id="hurtfx"></div>
 
         <div id="pause" class="screen dim hidden">
           <div class="panel">
             <div class="panel-title">일시정지</div>
             <button class="btn btn-primary" id="btn-resume">계속하기</button>
             <button class="btn" id="btn-settings">설정</button>
+            <button class="btn" id="btn-change-class">직업 바꾸기</button>
             <button class="btn" id="btn-to-title">타이틀로</button>
           </div>
         </div>

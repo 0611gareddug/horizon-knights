@@ -5,7 +5,11 @@ import { PixelCanvas } from './render/pixel.js';
 import { registerTiles } from './art/tiles.js';
 import { registerProps } from './art/props.js';
 import { registerSky } from './art/sky.js';
-import { registerCharacter } from './art/character.js';
+import { registerCharacter, CLASS_LOOKS } from './art/character.js';
+import { registerFx } from './art/fx-art.js';
+import { Combat } from './gameplay/combat.js';
+import { ClassController, CLASSES } from './gameplay/classes.js';
+import { Hud, buildClassSelect } from './ui/hud.js';
 import { buildMeadow } from './world/meadow.js';
 import { WorldRenderer } from './render/world-renderer.js';
 import { Sky } from './render/sky.js';
@@ -13,7 +17,7 @@ import { Particles } from './render/effects.js';
 import { Player } from './gameplay/player.js';
 import { Input } from './core/input.js';
 import { loadSettings, saveSettings } from './core/settings.js';
-import { sx as SX, sy as SY } from './core/view.js';
+import { sx as SX, sy as SY, TILE, LEVEL } from './core/view.js';
 import { enableProtection } from './security/protect.js';
 
 const $ = (id) => document.getElementById(id);
@@ -34,6 +38,11 @@ class Game {
     this.autoQuality = this.settings.quality === 'auto';
     this.quality = this.autoQuality ? (this.input.isTouch ? 'mid' : 'high') : this.settings.quality;
     this.guarded = false;
+    this.hitstopT = 0;
+    this.ctrl = null;
+    this.clsId = null;
+    this.viewX = 0;
+    this.viewY = 0;
   }
 
   async start() {
@@ -59,11 +68,13 @@ class Game {
     this.terrain = buildMeadow(7);
     this.world = new WorldRenderer(this.atlas, this.terrain);
     this.sky = new Sky(this.atlas);
-    this.player = new Player(this.atlas, this.terrain, 'hero');
+    this.player = new Player(this.atlas, this.terrain, 'warrior');
     this.fx = new Particles(this.atlas, this.world);
+    this.combat = new Combat(this);
+    this.hud = new Hud(this);
 
     this.worldLayer = new Container();
-    this.worldLayer.addChild(this.world.root);
+    this.worldLayer.addChild(this.world.root, this.combat.ground, this.combat.top);
     app.stage.addChild(this.sky.root, this.worldLayer);
 
     this.resize();
@@ -100,7 +111,10 @@ class Game {
       ['지형 블록을 쌓는 중…', (a) => registerTiles(a)],
       ['나무를 심는 중…', (a) => registerProps(a)],
       ['구름을 띄우는 중…', (a) => registerSky(a)],
-      ['기사단원을 깨우는 중…', (a) => registerCharacter(a, 'hero')],
+      ['기사단원을 깨우는 중…', (a) => {
+        for (const id of Object.keys(CLASS_LOOKS)) registerCharacter(a, id, CLASS_LOOKS[id]);
+      }],
+      ['무기를 벼리는 중…', (a) => registerFx(a)],
       ['효과 준비 중…', (a) => {
         const p1 = new PixelCanvas(1, 1);
         p1.px(0, 0, 0xffffff);
@@ -182,23 +196,138 @@ class Game {
     $('hud').classList.toggle('hidden', s !== 'play' && s !== 'pause');
     $('touch').classList.toggle('hidden', !(this.input.isTouch && s === 'play'));
     $('pause').classList.toggle('hidden', s !== 'pause');
-    this.player.view.visible = s !== 'title';
+    $('class-select').classList.toggle('hidden', s !== 'select');
+    this.player.view.visible = s !== 'title' && s !== 'select';
     if (s === 'play') this.input.endFrame();
   }
 
-  startGame() {
+  openClassSelect(from) {
+    this.selectFrom = from;
+    this.setState('select');
+  }
+
+  startGame(clsId) {
     const p = this.player;
-    p.x = p.px = this.terrain.spawn.x;
-    p.y = p.py = this.terrain.spawn.y;
-    p.z = p.pz = this.terrain.groundAt(p.x, p.y);
+    const first = !this.clsId;
+    if (this.ctrl) this.ctrl.destroy();
+    this.clsId = clsId;
+    p.prefix = clsId;
+    this.ctrl = new ClassController(this, p, clsId);
+    this.hud.build(clsId);
+    if (clsId === 'mage') this.hud.setElem(this.ctrl.elem);
+    if (first) {
+      p.x = p.px = this.terrain.spawn.x;
+      p.y = p.py = this.terrain.spawn.y;
+      p.z = p.pz = this.terrain.groundAt(p.x, p.y);
+      this.combat.spawnInitial();
+    }
+    p.alive = true;
     p.hp = p.maxHp;
+    p.ult = 0;
+    p.potions = 3;
     this.setState('play');
-    this.toast('초원 · 시험 구역');
-    setTimeout(() => $('help').classList.add('hidden'), 9000);
+    this.toast(`${CLASSES[clsId].name} · 초원 시험 구역`);
+    $('help').classList.remove('hidden');
+    clearTimeout(this.helpTimer);
+    this.helpTimer = setTimeout(() => $('help').classList.add('hidden'), 10000);
+  }
+
+  // ---------------- 전투 연출 ----------------
+  hitstop(t) {
+    this.hitstopT = Math.max(this.hitstopT, t);
+  }
+
+  shake(v) {
+    this.cam.shake = Math.max(this.cam.shake, v);
+  }
+
+  uiFlash(key) {
+    this.hud.flash(key);
+  }
+
+  onElemChange(elem) {
+    this.hud.setElem(elem);
+    this.toastWorld(this.player.x, this.player.y, this.player.z, { fire: '불', ice: '얼음', lightning: '번개' }[elem], { fire: 0xff8a3d, ice: 0x7ad0ff, lightning: 0xd59cff }[elem]);
+  }
+
+  worldToCss(x, y, z) {
+    const r = this.app.canvas.getBoundingClientRect();
+    return [(SX(x) - this.viewX) * (r.width / this.viewW) + r.left, (SY(y, z) - this.viewY) * (r.height / this.viewH) + r.top];
+  }
+
+  toastWorld(x, y, z, text, color = 0xffffff) {
+    const [cx, cy] = this.worldToCss(x, y, z + 2.2);
+    const d = document.createElement('div');
+    d.className = 'float-text';
+    d.textContent = text;
+    d.style.left = `${cx}px`;
+    d.style.top = `${cy}px`;
+    d.style.color = `#${color.toString(16).padStart(6, '0')}`;
+    $('float').appendChild(d);
+    setTimeout(() => d.remove(), 900);
+  }
+
+  flashScreen(t = 0.3) {
+    const f = $('flash');
+    f.style.transition = 'none';
+    f.style.opacity = '0.55';
+    requestAnimationFrame(() => {
+      f.style.transition = `opacity ${t}s ease-out`;
+      f.style.opacity = '0';
+    });
+  }
+
+  hurtFx() {
+    const f = $('hurtfx');
+    f.style.transition = 'none';
+    f.style.opacity = '1';
+    requestAnimationFrame(() => {
+      f.style.transition = 'opacity 0.45s ease-out';
+      f.style.opacity = '0';
+    });
+  }
+
+  // 조준 방향과 목표 지점
+  computeAim() {
+    const p = this.player;
+    const inp = this.input;
+    let dx = p.fx;
+    let dy = p.fy;
+    let dist = 3;
+    if (!inp.isTouch || inp.mouse.used) {
+      const r = this.app.canvas.getBoundingClientRect();
+      const gx = (inp.mouse.x - r.left) * (this.viewW / r.width) + this.viewX;
+      const gy = (inp.mouse.y - r.top) * (this.viewH / r.height) + this.viewY;
+      const wx = gx / TILE;
+      const wy = (gy + p.z * LEVEL) / TILE + 0.3;
+      dx = wx - p.x;
+      dy = wy - p.y;
+      dist = Math.hypot(dx, dy);
+    } else if (inp.aimOverride) {
+      dx = inp.aimOverride.dx;
+      dy = inp.aimOverride.dy;
+      dist = Math.max(1.5, Math.min(6, inp.aimOverride.len / 20));
+    } else {
+      const e = this.combat.nearest(p.x, p.y, 7);
+      if (e) {
+        dx = e.x - p.x;
+        dy = e.y - p.y;
+        dist = Math.hypot(dx, dy);
+      }
+    }
+    const l = Math.hypot(dx, dy) || 1;
+    dx /= l;
+    dy /= l;
+    dist = Math.max(0.5, Math.min(7, dist));
+    return { dx, dy, tx: p.x + dx * dist, ty: p.y + dy * dist };
   }
 
   bindUI() {
-    $('btn-start').addEventListener('click', () => this.startGame());
+    $('btn-start').addEventListener('click', () => this.openClassSelect('title'));
+    $('btn-change-class').addEventListener('click', () => this.openClassSelect('pause'));
+    $('btn-class-back').addEventListener('click', () => this.setState(this.selectFrom === 'pause' ? 'pause' : 'title'));
+    buildClassSelect((id) => this.startGame(id));
+    this.input.attachMouse(this.app.canvas);
     $('btn-pause').addEventListener('click', () => this.togglePause());
     $('btn-resume').addEventListener('click', () => this.togglePause());
     $('btn-to-title').addEventListener('click', () => {
@@ -256,7 +385,6 @@ class Game {
 
     if (this.input.isTouch) {
       this.input.attachJoystick($('joy-zone'), $('joy'), $('joy-knob'));
-      this.input.attachButton($('tb-roll'), 'roll');
     }
     // 백그라운드로 가면 자동 일시정지
     document.addEventListener('visibilitychange', () => {
@@ -314,11 +442,18 @@ class Game {
     if (this.state === 'play' && this.input.consume('pause')) this.togglePause();
     else if (this.state === 'pause' && this.input.consume('pause')) this.togglePause();
 
-    if (playing) {
+    if (playing && this.hitstopT > 0) {
+      // 히트스톱: 잠깐 시간을 멈춰 타격감을 줌
+      this.hitstopT -= dt;
+    } else if (playing) {
       this.acc += dt;
       let steps = 0;
-      while (this.acc >= STEP && steps < 5) {
+      while (this.acc >= STEP && steps < 5 && this.hitstopT <= 0) {
+        const aim = this.computeAim();
+        this.ctrl.update(STEP, this.input, aim);
+        this.input.aimOverride = null;
         this.player.update(STEP, this.input);
+        this.combat.update(STEP);
         this.input.endFrame();
         this.handleEvents();
         this.acc -= STEP;
@@ -332,6 +467,8 @@ class Game {
 
     const alpha = playing ? this.acc / STEP : 1;
     const ps = this.player.render(alpha, this.world);
+    if (this.ctrl) this.ctrl.renderWeapon();
+    this.combat.render(this.world);
 
     // 카메라
     let tx;
@@ -359,13 +496,18 @@ class Game {
     }
     const vx = Math.round(this.cam.x - this.viewW / 2 + sx);
     const vy = Math.round(this.cam.y - this.viewH / 2 + sy);
+    this.viewX = vx;
+    this.viewY = vy;
     this.worldLayer.x = -vx;
     this.worldLayer.y = -vy;
     this.world.cull(vx, vy, this.viewW, this.viewH);
     this.sky.update(dt, this.cam.x, this.cam.y, this.viewW, this.viewH);
 
     // HUD
-    if (playing) $('hp-fill').style.width = `${(this.player.hp / this.player.maxHp) * 100}%`;
+    if (playing) {
+      $('hp-fill').style.width = `${(this.player.hp / this.player.maxHp) * 100}%`;
+      this.hud.update(this.ctrl, this.player);
+    }
     this.measureFps(dt);
   }
 
@@ -380,6 +522,25 @@ class Game {
         this.toast('섬 밖으로 떨어졌어요! 체력 -20%');
         this.cam.shake = 5;
         this.vibrate(80);
+      } else if (e === 'potion') {
+        this.fx.burst(p.x, p.y, p.z + 0.6, { count: 12, speed: 1.5, up: 3, color: 0x7dff8a, gravity: 2 });
+        this.toastWorld(p.x, p.y, p.z, '회복', 0x7dff8a);
+      } else if (e === 'potionFail') {
+        this.hud.flash('potion');
+      } else if (e === 'dead') {
+        this.toast('쓰러졌어요… 시작 지점에서 다시 일어나요');
+        this.shake(6);
+        this.vibrate(120);
+        this.fx.burst(p.x, p.y, p.z + 0.4, { count: 20, speed: 3, up: 3, color: 0xe0524b, size: 2 });
+      } else if (e === 'respawn') {
+        this.cam.x = SX(p.x);
+        this.cam.y = SY(p.y, p.z);
+      } else if (e && e.type === 'hurt') {
+        this.combat.number(p.x, p.y, p.z, e.dmg, false, 'hurt');
+        this.shake(4);
+        this.hurtFx();
+        this.vibrate(50);
+        this.hitstop(0.05);
       }
     }
     p.events.length = 0;

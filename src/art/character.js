@@ -3,9 +3,9 @@
 import { PixelCanvas } from '../render/pixel.js';
 
 export const CHAR_W = 14;
-export const CHAR_H = 16;
+export const CHAR_H = 19;
 export const CHAR_AX = 7;
-export const CHAR_AY = 16;
+export const CHAR_AY = 19;
 export const CHAR_ANIMS = { idle: 2, walk: 4, roll: 4 };
 
 export const HERO_PALETTE = {
@@ -27,6 +27,31 @@ export const HERO_PALETTE = {
 };
 
 const W = CHAR_W;
+const PAD = 3; // 마법사 모자를 위한 위쪽 여백
+
+export const CLASS_LOOKS = {
+  warrior: { pal: HERO_PALETTE, hat: 'helmet', backSword: true },
+  archer: {
+    hat: 'hood',
+    backSword: false,
+    pal: { ...HERO_PALETTE, W: 0x86cf7e, m: 0x4f9e55, M: 0x2f6e3a, r: 0x9a6a3c, R: 0x70482a, b: 0x3e2a1a, g: 0xd8b45a, p: 0x4a3c30 },
+  },
+  mage: {
+    hat: 'wizard',
+    backSword: false,
+    pal: { ...HERO_PALETTE, W: 0x9f86ee, m: 0x6c4fd0, M: 0x47309a, r: 0x4f6fd6, R: 0x34499e, b: 0x2c2350, g: 0xf2c94c, p: 0x2c2846, k: 0x2c2350 },
+  },
+};
+
+const WIZARD_HAT = [
+  '.......oo.....',
+  '......omMo....',
+  '.....omgmo....',
+  '....oWmmmMo...',
+  '...oWmmmmmMo..',
+  '..oWmmmmmmmMo.',
+  '.oMMMMMMMMMMMo',
+];
 
 // ---------------- 앞 ----------------
 const D_TOP = [
@@ -100,42 +125,50 @@ function stamp(pc, rows, oy, pal) {
 }
 
 // 등에 멘 검 (어깨 위로 손잡이와 칼끝이 보임)
-function backSword(pc, pal, dir) {
+function backSword(pc, pal, dir, oy = 0) {
+  const P = (x, y, c) => pc.px(x, y + oy, c);
   if (dir === 'D') {
     // 오른쪽 어깨 위로 손잡이
-    pc.px(11, 6, pal.o);
-    pc.px(12, 5, pal.o);
-    pc.px(12, 6, pal.X);
-    pc.px(13, 5, pal.o);
-    pc.px(12, 4, pal.o);
+    P(11, 6, pal.o);
+    P(12, 5, pal.o);
+    P(12, 6, pal.X);
+    P(13, 5, pal.o);
+    P(12, 4, pal.o);
   } else if (dir === 'U') {
     // 등에 대각선으로
     const pts = [[11, 5], [10, 6], [9, 7], [8, 8], [7, 9], [6, 10], [5, 11], [4, 12]];
-    pts.forEach(([x, y], k) => pc.px(x, y, k < 2 ? pal.X : pal.x));
+    pts.forEach(([x, y], k) => P(x, y, k < 2 ? pal.X : pal.x));
   } else {
-    pc.px(1, 8, pal.X);
-    pc.px(1, 9, pal.x);
-    pc.px(1, 10, pal.x);
-    pc.px(1, 11, pal.x);
-    pc.px(1, 12, pal.x);
+    P(1, 8, pal.X);
+    P(1, 9, pal.x);
+    P(1, 10, pal.x);
+    P(1, 11, pal.x);
+    P(1, 12, pal.x);
   }
 }
 
-function drawStand(pal, dir, legs, bob) {
+function drawStand(look, dir, legs, bob) {
+  const pal = look.pal;
   const pc = new PixelCanvas(CHAR_W, CHAR_H);
   const top = dir === 'D' ? D_TOP : dir === 'U' ? U_TOP : R_TOP;
   const legSet = dir === 'R' ? LEGS_R : LEGS;
-  if (dir !== 'U') backSword(pc, pal, dir);
-  stamp(pc, legSet[legs], 13 + 0, pal);
-  stamp(pc, top, 0 + bob, pal);
-  if (dir === 'U') backSword(pc, pal, dir);
+  const sword = look.backSword;
+  if (sword && dir !== 'U') backSword(pc, pal, dir, PAD);
+  stamp(pc, legSet[legs], 13 + PAD, pal);
+  stamp(pc, top, PAD + bob, pal);
+  if (look.hat === 'wizard') {
+    // 모자 영역을 비우고 다시 그림
+    for (let y = bob; y < 7 + bob; y++) for (let x = 0; x < W; x++) if (y >= PAD + bob) pc.px(x, y, -1);
+    stamp(pc, dir === 'R' ? WIZARD_HAT : WIZARD_HAT, bob, pal);
+  }
+  if (sword && dir === 'U') backSword(pc, pal, dir, PAD);
   return pc;
 }
 
 function drawRoll(pal, i) {
   const pc = new PixelCanvas(CHAR_W, CHAR_H);
   const cx = 7;
-  const cy = 11;
+  const cy = 11 + PAD;
   pc.ellipse(cx, cy, 5, 4.6, pal.r);
   const a = (i / 4) * Math.PI * 2;
   pc.ellipse(cx + Math.cos(a) * 2, cy + Math.sin(a) * 1.8, 2.6, 2.6, pal.m);
@@ -145,17 +178,17 @@ function drawRoll(pal, i) {
   return pc;
 }
 
-export function drawCharFrame(pal, dir, anim, i) {
-  if (anim === 'roll') return drawRoll(pal, i);
-  if (anim === 'idle') return drawStand(pal, dir, 'N', i === 1 ? 1 : 0);
-  return drawStand(pal, dir, ['L', 'N', 'R', 'N'][i], 0);
+export function drawCharFrame(look, dir, anim, i) {
+  if (anim === 'roll') return drawRoll(look.pal, i);
+  if (anim === 'idle') return drawStand(look, dir, 'N', i === 1 ? 1 : 0);
+  return drawStand(look, dir, ['L', 'N', 'R', 'N'][i], 0);
 }
 
-export function registerCharacter(atlas, prefix, pal = HERO_PALETTE) {
+export function registerCharacter(atlas, prefix, look = CLASS_LOOKS.warrior) {
   for (const [anim, n] of Object.entries(CHAR_ANIMS))
     for (const dir of ['D', 'U', 'R'])
       for (let i = 0; i < n; i++) {
-        const pc = drawCharFrame(pal, dir, anim, i);
+        const pc = drawCharFrame(look, dir, anim, i);
         atlas.add(`${prefix}_${anim}_${dir}_${i}`, pc, CHAR_AX, CHAR_AY);
         if (dir === 'R') atlas.add(`${prefix}_${anim}_RL_${i}`, pc.flipX(), CHAR_W - CHAR_AX, CHAR_AY);
       }

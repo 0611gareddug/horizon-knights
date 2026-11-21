@@ -4,6 +4,8 @@ export class Input {
     this.keys = new Set();
     this.pressed = new Set(); // 이번 프레임에 새로 눌린 동작
     this.joy = { x: 0, y: 0, active: false };
+    this.mouse = { x: 0, y: 0, inside: false, used: false };
+    this.aimOverride = null; // 터치 스킬 버튼을 끌어서 조준한 방향
     this.isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
     this.bindings = {
       up: ['KeyW', 'ArrowUp'],
@@ -12,6 +14,13 @@ export class Input {
       right: ['KeyD', 'ArrowRight'],
       roll: ['Space'],
       pause: ['Escape'],
+      attack: ['KeyJ'],
+      skill1: ['KeyQ'],
+      skill2: ['KeyE'],
+      skill3: ['KeyR'],
+      ult: ['KeyF'],
+      potion: ['Digit1'],
+      swap: ['ShiftLeft', 'ShiftRight', 'Tab'],
     };
     this.codeToAction = new Map();
     for (const [a, codes] of Object.entries(this.bindings)) for (const c of codes) this.codeToAction.set(c, a);
@@ -21,13 +30,32 @@ export class Input {
       if (!a) return;
       if (!e.repeat) this.pressed.add(a);
       this.keys.add(a);
-      if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
+      if (e.code === 'Space' || e.code === 'Tab' || e.code.startsWith('Arrow')) e.preventDefault();
     });
     window.addEventListener('keyup', (e) => {
       const a = this.codeToAction.get(e.code);
       if (a) this.keys.delete(a);
     });
     window.addEventListener('blur', () => this.keys.clear());
+  }
+
+  attachMouse(el) {
+    el.addEventListener('pointermove', (e) => {
+      if (e.pointerType !== 'mouse') return;
+      this.mouse.x = e.clientX;
+      this.mouse.y = e.clientY;
+      this.mouse.inside = true;
+      this.mouse.used = true;
+    });
+    el.addEventListener('pointerdown', (e) => {
+      if (e.pointerType !== 'mouse' || e.button !== 0) return;
+      this.mouse.used = true;
+      this.press('attack');
+      this.keys.add('attack');
+    });
+    window.addEventListener('pointerup', (e) => {
+      if (e.pointerType === 'mouse' && e.button === 0) this.keys.delete('attack');
+    });
   }
 
   // 화면 기준 이동 방향 (-1..1), 크기 0..1
@@ -109,19 +137,45 @@ export class Input {
     zone.addEventListener('pointercancel', end);
   }
 
-  attachButton(el, action) {
+  // dragAim: 누른 채 끌면 그 방향으로 조준하고, 손을 뗄 때 발동
+  attachButton(el, action, { dragAim = false, hold = false } = {}) {
+    let id = null;
+    let sx = 0;
+    let sy = 0;
     el.addEventListener('pointerdown', (e) => {
       e.preventDefault();
-      this.press(action);
+      if (id !== null) return;
+      id = e.pointerId;
+      el.setPointerCapture(id);
+      sx = e.clientX;
+      sy = e.clientY;
       el.classList.add('pressed');
-      this.keys.add(action);
+      if (!dragAim) {
+        this.press(action);
+        this.keys.add(action);
+      }
+      if (hold) this.keys.add(action);
     });
-    const up = () => {
-      el.classList.remove('pressed');
+    el.addEventListener('pointermove', (e) => {
+      if (e.pointerId !== id || !dragAim) return;
+      const dx = e.clientX - sx;
+      const dy = e.clientY - sy;
+      el.classList.toggle('aiming', Math.hypot(dx, dy) > 18);
+    });
+    const up = (e) => {
+      if (e.pointerId !== id) return;
+      id = null;
+      el.classList.remove('pressed', 'aiming');
+      if (dragAim) {
+        const dx = e.clientX - sx;
+        const dy = e.clientY - sy;
+        const len = Math.hypot(dx, dy);
+        this.aimOverride = len > 18 ? { dx: dx / len, dy: dy / len, len } : null;
+        this.press(action);
+      }
       this.keys.delete(action);
     };
     el.addEventListener('pointerup', up);
     el.addEventListener('pointercancel', up);
-    el.addEventListener('pointerleave', up);
   }
 }

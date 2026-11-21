@@ -3,7 +3,7 @@ import { Sprite, Container } from 'pixi.js';
 import { sx as SX, sy as SY, LEVEL, facingName } from '../core/view.js';
 import { CHAR_ANIMS as ANIMS, CHAR_W, CHAR_H, CHAR_AX, CHAR_AY } from '../art/character.js';
 
-const SPEED = 4.4; // 칸/초
+let SPEED = 4.4; // 칸/초 (직업에 따라 바뀜)
 const ACCEL = 38;
 const RADIUS = 0.28;
 const STEP_UP = 0.55;
@@ -41,6 +41,22 @@ export class Player {
     this.safe = { x: this.x, y: this.y, z: this.z };
     this.safeTimer = 0;
     this.events = [];
+    this.alive = true;
+    this.lockT = 0;
+    this.moveMul = 1;
+    this.dashT = 0;
+    this.dashVx = 0;
+    this.dashVy = 0;
+    this.atk = 12;
+    this.def = 10;
+    this.critChance = 0.1;
+    this.ult = 0;
+    this.buffs = [];
+    this.potions = 3;
+    this.potionCd = 0;
+    this.healLeft = 0;
+    this.deadT = 0;
+    this.hurtCd = 0;
 
     this.view = new Container();
     this.shadow = new Sprite(atlas.tex('shadow_m'));
@@ -48,6 +64,91 @@ export class Player {
     this.body = new Sprite(atlas.tex(`${prefix}_idle_D_0`));
     this.body.anchor.set(CHAR_AX / CHAR_W, CHAR_AY / CHAR_H);
     this.view.addChild(this.shadow, this.body);
+  }
+
+  applyClass(def) {
+    this.maxHp = this.hp = def.hp;
+    this.atk = def.atk;
+    this.def = def.def;
+    SPEED = def.speed;
+  }
+
+  faceTo(dx, dy) {
+    if (Math.hypot(dx, dy) > 0.01) {
+      this.fx = dx;
+      this.fy = dy;
+    }
+  }
+
+  // 공격할 때 살짝 앞으로
+  lunge(dx, dy, power) {
+    this.vx += dx * power * 2.2;
+    this.vy += dy * power * 2.2;
+  }
+
+  dash(dx, dy, dist, time, keepFacing = false) {
+    this.dashT = time;
+    this.dashVx = (dx * dist) / time;
+    this.dashVy = (dy * dist) / time;
+    this.iframe = Math.max(this.iframe, time);
+    if (!keepFacing) this.faceTo(dx, dy);
+  }
+
+  blink(dx, dy, dist) {
+    // 막히지 않는 가장 먼 곳으로
+    let best = 0;
+    for (let d = 0.25; d <= dist; d += 0.25) {
+      const x = this.x + dx * d;
+      const y = this.y + dy * d;
+      const g = this.t.groundAt(x, y);
+      if (g === -Infinity || this.blockedAt(x, y) || Math.abs(g - this.z) > 0.6) continue;
+      best = d;
+    }
+    this.x = this.px = this.x + dx * best;
+    this.y = this.py = this.y + dy * best;
+    this.z = this.pz = this.t.groundAt(this.x, this.y);
+    this.iframe = Math.max(this.iframe, 0.2);
+  }
+
+  addBuff(type, time, value) {
+    this.buffs = this.buffs.filter((b) => b.type !== type);
+    this.buffs.push({ type, time, value });
+  }
+
+  get guard() {
+    return this.buffs.filter((b) => b.type === 'guard').reduce((m, b) => m * (1 - b.value), 1);
+  }
+
+  gainUlt(v) {
+    this.ult = Math.min(100, this.ult + v);
+  }
+
+  usePotion() {
+    if (!this.alive || this.potions <= 0 || this.potionCd > 0 || this.hp >= this.maxHp) return false;
+    this.potions--;
+    this.potionCd = 15;
+    this.healLeft = this.maxHp * 0.4;
+    this.events.push('potion');
+    return true;
+  }
+
+  hurt(amount, kx = 0, ky = 0) {
+    if (!this.alive || this.iframe > 0 || this.rollT > 0 || this.hurtCd > 0) return;
+    const reduce = 1 - this.def / (this.def + 30);
+    const dmg = Math.max(1, Math.round(amount * reduce * this.guard));
+    this.hp -= dmg;
+    this.hurtCd = 0.5;
+    this.iframe = 0.5;
+    this.vx += kx * 6;
+    this.vy += ky * 6;
+    this.gainUlt(dmg * 0.6);
+    this.events.push({ type: 'hurt', dmg });
+    if (this.hp <= 0) {
+      this.hp = 0;
+      this.alive = false;
+      this.deadT = 1.6;
+      this.events.push('dead');
+    }
   }
 
   blockedAt(x, y) {
@@ -70,17 +171,43 @@ export class Player {
     this.pz = this.z;
     this.rollCd = Math.max(0, this.rollCd - dt);
     this.iframe = Math.max(0, this.iframe - dt);
+    this.hurtCd = Math.max(0, this.hurtCd - dt);
+    this.lockT = Math.max(0, this.lockT - dt);
+    this.potionCd = Math.max(0, this.potionCd - dt);
+    for (const b of this.buffs) b.time -= dt;
+    this.buffs = this.buffs.filter((b) => b.time > 0);
+    if (this.healLeft > 0) {
+      const h = Math.min(this.healLeft, ((this.maxHp * 0.4) / 2) * dt);
+      this.healLeft -= h;
+      this.hp = Math.min(this.maxHp, this.hp + h);
+    }
+    if (!this.alive) {
+      this.deadT -= dt;
+      this.vx = this.vy = 0;
+      if (this.deadT <= 0) {
+        this.alive = true;
+        this.hp = this.maxHp;
+        this.x = this.px = this.t.spawn.x;
+        this.y = this.py = this.t.spawn.y;
+        this.z = this.pz = this.t.groundAt(this.x, this.y);
+        this.iframe = 1.5;
+        this.potions = 3;
+        this.events.push('respawn');
+      }
+      return;
+    }
 
-    const [mx, my] = input.moveVector();
-    const mag = Math.min(1, Math.hypot(mx, my));
+    let [mx, my] = input.moveVector();
+    if (this.lockT > 0 || this.dashT > 0) mx = my = 0;
+    const mag = Math.min(1, Math.hypot(mx, my)) * this.moveMul;
     const wx = mag > 0 ? mx / Math.hypot(mx, my) : 0;
     const wy = mag > 0 ? my / Math.hypot(mx, my) : 0;
-    if (mag > 0.2) {
+    if (mag > 0.1 && this.moveMul >= 1) {
       this.fx = wx;
       this.fy = wy;
     }
 
-    if (input.consume('roll') && this.rollCd <= 0 && this.rollT <= 0 && this.grounded) {
+    if (input.consume('roll') && this.rollCd <= 0 && this.rollT <= 0 && this.dashT <= 0 && this.lockT <= 0 && this.grounded) {
       this.rollDx = this.fx;
       this.rollDy = this.fy;
       this.rollT = ROLL_TIME;
@@ -90,7 +217,12 @@ export class Player {
       this.events.push('roll');
     }
 
-    if (this.rollT > 0) {
+    if (input.consume('potion')) this.usePotion() || this.events.push('potionFail');
+    if (this.dashT > 0) {
+      this.dashT -= dt;
+      this.vx = this.dashVx;
+      this.vy = this.dashVy;
+    } else if (this.rollT > 0) {
       this.rollT -= dt;
       const sp = ROLL_DIST / ROLL_TIME;
       this.vx = this.rollDx * sp;
@@ -159,7 +291,6 @@ export class Player {
       this.animT = 0;
     }
     this.animT += dt;
-    this.hp = Math.min(this.maxHp, this.hp + dt * 2);
   }
 
   render(alpha, worldRenderer) {
@@ -171,7 +302,9 @@ export class Player {
     const frame = this.anim === 'roll' ? Math.min(n - 1, Math.floor(this.animT * fps)) : Math.floor(this.animT * fps) % n;
     const dirName = facingName(this.fx, this.fy);
     this.body.texture = this.atlas.tex(`${this.prefix}_${this.anim}_${dirName}_${frame}`);
-    this.body.alpha = this.iframe > 0 && this.rollT <= 0 ? (Math.floor(this.iframe * 20) % 2 ? 0.35 : 1) : 1;
+    this.view.visible = this.alive || this.deadT > 1.3;
+    this.body.alpha = this.iframe > 0 && this.rollT <= 0 && this.dashT <= 0 ? (Math.floor(this.iframe * 20) % 2 ? 0.35 : 1) : 1;
+    this.body.tint = this.hurtCd > 0.38 ? 0xff7a7a : 0xffffff;
 
     const px = Math.round(SX(x));
     const py = Math.round(SY(y, z));
