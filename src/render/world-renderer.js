@@ -13,6 +13,7 @@ export class WorldRenderer {
     this.t = terrain;
     this.root = new Container();
     this.rows = [];
+    this.cells = new Map(); // 칸별 스프라이트 (무너짐 연출용)
     this.lastCull = { x: NaN, y: NaN, w: 0, h: 0 };
     this.build();
   }
@@ -35,8 +36,13 @@ export class WorldRenderer {
       this.rows.push(c);
       this.root.addChild(c);
     }
+    let curCell = null;
     const add = (j, name, x, y) => {
       const s = new Sprite(this.atlas.tex(name));
+      if (curCell !== null) {
+        if (!this.cells.has(curCell)) this.cells.set(curCell, []);
+        this.cells.get(curCell).push(s);
+      }
       s.x = Math.round(x);
       s.y = Math.round(y);
       const c = this.rows[this.rowIndex(j)];
@@ -55,6 +61,7 @@ export class WorldRenderer {
       for (let i = 0; i < t.w; i++) {
         if (t.isVoid(i, j)) continue;
         const id = t.idx(i, j);
+        curCell = id;
         const T = t.top[id];
         const mat = MAT_NAMES[t.mat[id]];
         const topName = mat === 'dirt' ? 'path' : mat === 'grass' && T >= 1 ? 'grassH' : mat;
@@ -74,6 +81,7 @@ export class WorldRenderer {
       for (let i = 0; i < t.w; i++) {
         if (t.isVoid(i, j)) continue;
         const id = t.idx(i, j);
+        curCell = id;
         const T = t.top[id];
         const B = t.bottom[id];
         const mat = MAT_NAMES[t.mat[id]];
@@ -87,31 +95,55 @@ export class WorldRenderer {
           const frac = z - Math.floor(z);
           const step = frac > 1e-6 ? frac : Math.min(1, z - hs);
           const hpx = step >= 1 ? LEVEL : LEVEL / 2;
-          const kind = z <= 0 ? 'under' : mat === 'stone' ? 'stone' : 'dirt';
+          const kind = mat === 'plank' ? 'wood' : z <= 0 ? 'under' : mat === 'stone' ? 'stone' : 'dirt';
           const pre = first && kind !== 'under' ? 'wallt' : 'wall';
           add(j, `${pre}_${kind}_${hpx}_${v(i, j, k++)}`, SX(i), (j + 1) * TILE - z * LEVEL);
           z -= step;
           first = false;
         }
-        if (southVoid) add(j, `fringe_${v(i, j)}`, SX(i), (j + 1) * TILE - B * LEVEL);
+        if (southVoid && mat !== 'plank') add(j, `fringe_${v(i, j)}`, SX(i), (j + 1) * TILE - B * LEVEL);
       }
     }
+    curCell = null;
 
     // 바닥 장식 (꽃, 풀)
     for (const d of t.decals) {
       const i = Math.floor(d.x);
       const j = Math.floor(d.y);
+      curCell = t.idx(i, j);
       const name = `prop_${d.type}_${d.v}`;
       const m = this.atlas.anchor(name);
       add(j, name, SX(d.x) - m.ax, SY(d.y, t.topAt(i, j)) - m.ay);
     }
     // 장식 (나무, 덤불, 바위) — 칸 중심 아래쪽에 발을 둠
     for (const p of t.props) {
+      curCell = t.idx(p.i, p.j);
       const name = `prop_${p.type}_${p.v}`;
       const m = this.atlas.anchor(name);
       const top = t.topAt(p.i, p.j);
       add(p.j, name, SX(p.i + 0.5) - m.ax, SY(p.j + 0.75, top) - m.ay);
     }
+  }
+
+  // 칸 하나를 무너뜨림: 그림을 숨기고, 떨어지는 조각에 쓸 텍스처와 위치를 돌려줌
+  crumble(i, j) {
+    const t = this.t;
+    if (t.isVoid(i, j)) return null;
+    const id = t.idx(i, j);
+    const T = t.top[id];
+    t.top[id] = NaN;
+    t.solid[id] = 0;
+    const list = this.cells.get(id) || [];
+    for (const s of list) {
+      s.visible = false;
+      s.dead = true;
+    }
+    const top = list[0];
+    return top ? { tex: top.texture, x: SX(i), y: SY(j, T) } : null;
+  }
+
+  destroy() {
+    this.root.destroy({ children: true });
   }
 
   placeEntity(sprite, x, y) {
@@ -122,7 +154,8 @@ export class WorldRenderer {
 
   cull(vx, vy, vw, vh) {
     const L = this.lastCull;
-    if (Math.abs(L.x - vx) < 4 && Math.abs(L.y - vy) < 4 && L.w === vw && L.h === vh) return;
+    if (!this.force && Math.abs(L.x - vx) < 4 && Math.abs(L.y - vy) < 4 && L.w === vw && L.h === vh) return;
+    this.force = false;
     L.x = vx;
     L.y = vy;
     L.w = vw;
@@ -136,7 +169,7 @@ export class WorldRenderer {
       const vis = c.maxY >= y0 && c.minY <= y1;
       c.blocks.visible = vis;
       if (!vis) continue;
-      for (const s of c.items) s.visible = s.bx1 >= x0 && s.bx0 <= x1;
+      for (const s of c.items) s.visible = !s.dead && s.bx1 >= x0 && s.bx0 <= x1;
     }
   }
 }

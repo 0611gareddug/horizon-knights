@@ -43,6 +43,44 @@ export const CLASS_LOOKS = {
   },
 };
 
+// ---------------- NPC ----------------
+const CAPTAIN_HAT = [
+  [-2, '...oooooooo...'],
+  [-1, '..oaaaggaaao..'],
+  [0, '.oaaaaaaaaaao.'],
+  [1, 'oAaaaaaaaaaaAo'],
+  [2, '.oAAAAAAAAAAo.'],
+];
+export const NPC_LOOKS = {
+  kaira: {
+    hat: 'hair',
+    pal: { ...HERO_PALETTE, W: 0xffb871, m: 0xec8a3c, M: 0xb45a22, r: 0x2f8f7a, R: 0x216a5a, b: 0x3a2a1a, g: 0xe2e6ee },
+    decor: {
+      D: [],
+      U: [[7, '...oMMMMMMo...'], [8, '.....oMMo.....']],
+      R: [[5, '.oMMmmMsseso..'], [6, '.oMMmmMsseso..'], [7, '..ooMMnssso...']],
+    },
+  },
+  bartol: {
+    hat: 'captain',
+    pal: { ...HERO_PALETTE, W: 0xd6d6d6, m: 0xbfbfbf, M: 0x9a9a9a, a: 0x5a3a22, A: 0x3e2716, g: 0xf2c94c, w: 0xf2f2ee, r: 0x2f4f8f, R: 0x223a6a, b: 0x6e4529 },
+    decor: {
+      D: [...CAPTAIN_HAT, [7, '...owwwwwwo...'], [8, '....owwwwo....']],
+      U: [...CAPTAIN_HAT],
+      R: [...CAPTAIN_HAT, [7, '...oMMwwwwo...'], [8, '....owwwwo....']],
+    },
+  },
+  elian: {
+    hat: 'hair',
+    pal: { ...HERO_PALETTE, W: 0xe6dcff, m: 0xc2b0f0, M: 0x8f7cc8, q: 0xd8b45a, r: 0x3c7a8f, R: 0x2a5a6a, b: 0x2c2350, g: 0xd8b45a },
+    decor: {
+      D: [[5, '..oMqeqqeqMo..'], [9, '..oMrrrggrrMo.'.slice(0, 14)]],
+      U: [[8, '...oMMMMMMo...'], [9, '...oMMMMMMo...']],
+      R: [[5, '..oMmmMsqeqo..']],
+    },
+  },
+};
+
 const WIZARD_HAT = [
   '.......oo.....',
   '......omMo....',
@@ -162,6 +200,9 @@ function drawStand(look, dir, legs, bob) {
     stamp(pc, dir === 'R' ? WIZARD_HAT : WIZARD_HAT, bob, pal);
   }
   if (sword && dir === 'U') backSword(pc, pal, dir, PAD);
+  // NPC 장식 (모자, 수염, 안경 등): 행 번호는 머리 맨 윗줄 기준
+  const decor = look.decor?.[dir];
+  if (decor) for (const [ry, row] of decor) stamp(pc, [row], PAD + bob + ry, pal);
   return pc;
 }
 

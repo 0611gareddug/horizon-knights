@@ -130,6 +130,92 @@ export function makeShadow(w, h) {
   return pc;
 }
 
+const WOOD = { base: 0xa06a44, shade: 0x77492e, light: 0xc48a5a };
+
+export function makeFence() {
+  const pc = new PixelCanvas(18, 14);
+  pc.rect(2, 2, 3, 11, WOOD.base);
+  pc.rect(13, 2, 3, 11, WOOD.base);
+  pc.rect(0, 4, 18, 2, WOOD.light);
+  pc.rect(0, 8, 18, 2, WOOD.base);
+  pc.vline(4, 2, 12, WOOD.shade);
+  pc.vline(15, 2, 12, WOOD.shade);
+  pc.outline(OUT);
+  return { pc, ax: 9, ay: 12 };
+}
+
+export function makeBanner(color) {
+  const pc = new PixelCanvas(14, 30);
+  pc.rect(2, 0, 2, 30, WOOD.base);
+  pc.vline(3, 0, 29, WOOD.shade);
+  pc.rect(4, 2, 8, 12, color);
+  for (let x = 4; x < 12; x += 2) pc.px(x, 14, color);
+  pc.rect(6, 5, 4, 4, 0xf2c94c);
+  pc.outline(OUT);
+  return { pc, ax: 3, ay: 28 };
+}
+
+export function makeMast() {
+  const pc = new PixelCanvas(40, 64);
+  pc.rect(18, 4, 4, 60, WOOD.base);
+  pc.vline(21, 4, 63, WOOD.shade);
+  // 돛
+  for (let y = 0; y < 30; y++) {
+    const w = 15 - Math.abs(y - 15) * 0.25;
+    pc.hline(Math.round(20 - w), Math.round(20 + w), y + 8, y % 9 === 8 ? 0xd9cdb0 : 0xf2ead6);
+  }
+  pc.rect(17, 2, 6, 3, 0xf2c94c);
+  pc.rect(6, 7, 28, 2, WOOD.shade);
+  pc.outline(OUT);
+  return { pc, ax: 20, ay: 62 };
+}
+
+export function makeRail(vertical) {
+  const pc = vertical ? new PixelCanvas(6, 20) : new PixelCanvas(18, 12);
+  if (vertical) {
+    pc.rect(1, 0, 3, 19, WOOD.base);
+    pc.vline(3, 0, 18, WOOD.shade);
+  } else {
+    pc.rect(0, 3, 18, 3, WOOD.light);
+    pc.rect(1, 6, 2, 5, WOOD.base);
+    pc.rect(15, 6, 2, 5, WOOD.base);
+  }
+  pc.outline(OUT);
+  return { pc, ax: vertical ? 3 : 9, ay: vertical ? 18 : 10 };
+}
+
+export function makeWheel() {
+  const pc = new PixelCanvas(18, 22);
+  pc.rect(8, 12, 2, 9, WOOD.shade);
+  pc.ellipse(9, 9, 7, 7, WOOD.base);
+  pc.ellipse(9, 9, 4.5, 4.5, -1);
+  for (const [dx, dy] of [[0, -8], [0, 8], [-8, 0], [8, 0], [-6, -6], [6, 6], [-6, 6], [6, -6]]) pc.px(9 + dx, 9 + dy, WOOD.light);
+  pc.ellipse(9, 9, 1.6, 1.6, 0xf2c94c);
+  pc.outline(OUT);
+  return { pc, ax: 9, ay: 20 };
+}
+
+export function makeCrate() {
+  const pc = new PixelCanvas(16, 16);
+  pc.rect(1, 1, 14, 14, WOOD.base);
+  pc.rect(1, 1, 14, 3, WOOD.light);
+  for (let k = 0; k < 11; k++) pc.px(3 + k, 4 + k > 14 ? 14 : 4 + k, WOOD.shade);
+  pc.vline(14, 1, 14, WOOD.shade);
+  pc.outline(OUT);
+  return { pc, ax: 8, ay: 14 };
+}
+
+export function makeBarrel() {
+  const pc = new PixelCanvas(14, 16);
+  pc.ellipse(7, 8, 6, 7, WOOD.base);
+  pc.hline(1, 12, 4, 0x6c6c78);
+  pc.hline(1, 12, 11, 0x6c6c78);
+  pc.ellipse(7, 3, 4.5, 1.6, WOOD.light);
+  pc.vline(10, 3, 13, WOOD.shade);
+  pc.outline(OUT);
+  return { pc, ax: 7, ay: 14 };
+}
+
 export const PROP_VARIANTS = { tree: 4, bush: 3, rock: 3, flowers: 6, tuft: 4 };
 
 export function registerProps(atlas) {
@@ -140,6 +226,16 @@ export function registerProps(atlas) {
       atlas.add(`prop_${name}_${v}`, pc, ax, ay);
     }
   }
+  const one = (name, r) => atlas.add(`prop_${name}_0`, r.pc, r.ax, r.ay);
+  one('fence', makeFence());
+  one('banner', makeBanner(0x3a64b4));
+  atlas.add('prop_banner_1', makeBanner(0xd94f4f).pc, 3, 28);
+  one('mast', makeMast());
+  one('railh', makeRail(false));
+  one('railv', makeRail(true));
+  one('wheel', makeWheel());
+  one('crate', makeCrate());
+  one('barrel', makeBarrel());
   atlas.add('shadow_m', makeShadow(14, 5), 7, 2);
   atlas.add('shadow_l', makeShadow(30, 10), 15, 5);
 }

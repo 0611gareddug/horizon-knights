@@ -262,17 +262,41 @@ export class Combat {
     this.ground = new Container(); // 범위 표시
     this.top = new Container(); // 베기, 숫자
     this.gfxPool = [];
+    this.stats = { dummyHits: 0, kills: 0 };
+    this.respawn = true;
+  }
+
+  // 맵 전환 때 모두 정리
+  clear() {
+    for (const e of this.enemies) e.view.parent?.removeChild(e.view);
+    for (const pr of this.projectiles) pr.s.parent?.removeChild(pr.s);
+    for (const a of this.areas) {
+      a.g.clear();
+      a.g.parent?.removeChild(a.g);
+      this.gfxPool.push(a.g);
+    }
+    for (const n of this.numbers) n.parent?.removeChild(n);
+    this.enemies = [];
+    this.projectiles = [];
+    this.areas = [];
+    this.numbers = [];
+    this.timers = [];
+  }
+
+  spawnDummies(list) {
+    for (const m of list) this.enemies.push(new Dummy(this, m.x, m.y));
+  }
+
+  spawnSlimeAt(x, y, red = false) {
+    const e = new Slime(this, x, y, red);
+    this.enemies.push(e);
+    this.fx.burst(x, y, e.z + 0.3, { count: 10, speed: 2, up: 2, color: e.chunkColor });
+    return e;
   }
 
   // ---------- 적 배치 ----------
   spawnInitial() {
-    const s = this.t.spawn;
-    for (const [ox, oy] of [[-3, -2], [3, -2], [0, -4]]) {
-      const x = Math.floor(s.x + ox) + 0.5;
-      const y = Math.floor(s.y + oy) + 0.5;
-      if (!this.t.isVoid(Math.floor(x), Math.floor(y))) this.enemies.push(new Dummy(this, x, y));
-    }
-    for (let k = 0; k < 7; k++) this.spawnSlime(k % 3 === 0);
+    for (let k = 0; k < 8; k++) this.spawnSlime(k % 3 === 0);
   }
 
   spawnSlime(red) {
@@ -291,7 +315,10 @@ export class Combat {
   }
 
   onEnemyDeath(e) {
-    if (e.kind === 'slime') this.after(8, () => this.spawnSlime(e.red));
+    if (e.kind === 'slime') {
+      this.stats.kills++;
+      if (this.respawn) this.after(8, () => this.spawnSlime(e.red));
+    }
   }
 
   after(t, fn) {
@@ -347,7 +374,11 @@ export class Combat {
     e.hp -= dmg;
     e.lastHit = 0;
     e.flash = 0.07;
-    if (e.kind === 'dummy') e.wob = 1;
+    if (e.kind === 'dummy') {
+      e.wob = 1;
+      if (!opts.quiet) this.stats.dummyHits++;
+    }
+    this.g.sfx.hit(crit);
     if (!opts.noKnock && e.kind !== 'dummy') {
       const k = opts.knock ?? 3;
       e.kvx += (opts.kx || 0) * k;

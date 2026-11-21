@@ -22,6 +22,9 @@ export const PAL = {
   dirt: 0x96603c,
   dirtDark: 0x6e4429,
   dirtLight: 0xab7349,
+  plank: 0xb5824e,
+  plankDark: 0x7f5530,
+  plankLight: 0xcf9d66,
   under: 0x7a5038,
   underDark: 0x5a3a28,
   lip: 0x4ca83e,
@@ -79,9 +82,9 @@ function stoneTop(seed) {
 function wallFace(seed, h, kind, top) {
   const r = rng(seed * 97 + h * 13 + (top ? 1 : 0));
   const pc = new PixelCanvas(T, h);
-  const base = kind === 'stone' ? PAL.stone : kind === 'under' ? PAL.under : PAL.dirt;
-  const dark = kind === 'stone' ? PAL.stoneDark : kind === 'under' ? PAL.underDark : PAL.dirtDark;
-  const light = kind === 'stone' ? PAL.stoneLight : kind === 'under' ? PAL.dirt : PAL.dirtLight;
+  const base = kind === 'stone' ? PAL.stone : kind === 'under' ? PAL.under : kind === 'wood' ? 0x8a5a34 : PAL.dirt;
+  const dark = kind === 'stone' ? PAL.stoneDark : kind === 'under' ? PAL.underDark : kind === 'wood' ? 0x5e3a1e : PAL.dirtDark;
+  const light = kind === 'stone' ? PAL.stoneLight : kind === 'under' ? PAL.dirt : kind === 'wood' ? 0xa8713f : PAL.dirtLight;
   pc.rect(0, 0, T, h, base);
   // 벽돌 줄눈
   const off = Math.floor(r() * 8);
@@ -92,7 +95,7 @@ function wallFace(seed, h, kind, top) {
   }
   // 윗줄 하이라이트
   pc.hline(0, T - 1, 0, light);
-  if (top && kind !== 'stone') {
+  if (top && kind !== 'stone' && kind !== 'wood') {
     // 풀이 앞면 위로 살짝 늘어짐
     for (let x = 0; x < T; x++) {
       const d = 1 + (r() < 0.3 ? 1 : 0);
@@ -140,13 +143,26 @@ function edgeLine(horizontal) {
   return pc;
 }
 
-export const TOPS = { grass: grassTop, path: pathTop, stone: stoneTop };
+function plankTop(seed) {
+  const r = rng(seed * 89 + 17);
+  const pc = new PixelCanvas(T, T);
+  pc.rect(0, 0, T, T, PAL.plank);
+  for (let y = 0; y < T; y += 4) {
+    pc.hline(0, T - 1, y + 3, PAL.plankDark);
+    const cut = Math.floor(r() * T);
+    pc.vline(cut, y, y + 2, PAL.plankDark);
+    if (r() < 0.5) pc.px(Math.floor(r() * T), y + 1, PAL.plankLight);
+  }
+  return pc;
+}
+
+export const TOPS = { grass: grassTop, path: pathTop, stone: stoneTop, plank: plankTop };
 
 export function registerTiles(atlas) {
   for (let v = 0; v < VARIANTS; v++) {
     for (const [name, fn] of Object.entries(TOPS)) atlas.add(`top_${name}_${v}`, fn(v + 1));
     atlas.add(`top_grassH_${v}`, grassTop(v + 1, true));
-    for (const kind of ['dirt', 'stone', 'under']) {
+    for (const kind of ['dirt', 'stone', 'under', 'wood']) {
       atlas.add(`wall_${kind}_${LV}_${v}`, wallFace(v + 1, LV, kind, false));
       atlas.add(`wall_${kind}_${LV / 2}_${v}`, wallFace(v + 1, LV / 2, kind, false));
       atlas.add(`wallt_${kind}_${LV}_${v}`, wallFace(v + 1, LV, kind, true));

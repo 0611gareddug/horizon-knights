@@ -1,11 +1,16 @@
 // 호라이즌 나이츠 - 시작점
-import { Application, Container } from 'pixi.js';
+import { Application, Container, Sprite } from 'pixi.js';
 import { Atlas } from './render/atlas.js';
 import { PixelCanvas } from './render/pixel.js';
 import { registerTiles } from './art/tiles.js';
 import { registerProps } from './art/props.js';
 import { registerSky } from './art/sky.js';
-import { registerCharacter, CLASS_LOOKS } from './art/character.js';
+import { registerCharacter, CLASS_LOOKS, NPC_LOOKS } from './art/character.js';
+import { Sfx } from './audio/sfx.js';
+import { Dialog } from './story/dialog.js';
+import { Director, Npc } from './story/director.js';
+import { runPrologue } from './story/prologue.js';
+import { buildTraining, buildDeck } from './world/zones.js';
 import { registerFx } from './art/fx-art.js';
 import { Combat } from './gameplay/combat.js';
 import { ClassController, CLASSES } from './gameplay/classes.js';
@@ -25,6 +30,16 @@ const VIEW_H = 192; // 화면에 보이는 게임 픽셀 높이 (기준)
 const STEP = 1 / 60;
 
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
+const SAVE_KEY = 'hk_save_v1';
+const BAD_WORDS = ['시발', '씨발', '병신', '개새', '좆', '존나', '썅', 'fuck', 'shit', 'bitch'];
+
+function loadSave() {
+  try {
+    return JSON.parse(localStorage.getItem(SAVE_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
 
 class Game {
   constructor() {
@@ -43,6 +58,24 @@ class Game {
     this.clsId = null;
     this.viewX = 0;
     this.viewY = 0;
+    this.save = loadSave();
+    this.timers = [];
+    this.tickers = [];
+    this.npcs = [];
+    this.stats = { rolls: 0, skills: 0 };
+    this.skipping = false;
+    this.camOverride = null;
+    this.obj = null;
+    this.escape = null;
+    this.sfx = new Sfx();
+  }
+
+  saveGame() {
+    try {
+      localStorage.setItem(SAVE_KEY, JSON.stringify(this.save));
+    } catch {
+      /* 저장 불가 환경 */
+    }
   }
 
   async start() {
@@ -72,6 +105,9 @@ class Game {
     this.fx = new Particles(this.atlas, this.world);
     this.combat = new Combat(this);
     this.hud = new Hud(this);
+    this.dialog = new Dialog(this);
+    this.director = new Director(this);
+    this.zone = 'meadow';
 
     this.worldLayer = new Container();
     this.worldLayer.addChild(this.world.root, this.combat.ground, this.combat.top);
@@ -113,6 +149,7 @@ class Game {
       ['구름을 띄우는 중…', (a) => registerSky(a)],
       ['기사단원을 깨우는 중…', (a) => {
         for (const id of Object.keys(CLASS_LOOKS)) registerCharacter(a, id, CLASS_LOOKS[id]);
+        for (const id of Object.keys(NPC_LOOKS)) registerCharacter(a, id, NPC_LOOKS[id]);
       }],
       ['무기를 벼리는 중…', (a) => registerFx(a)],
       ['효과 준비 중…', (a) => {
@@ -197,7 +234,11 @@ class Game {
     $('touch').classList.toggle('hidden', !(this.input.isTouch && s === 'play'));
     $('pause').classList.toggle('hidden', s !== 'pause');
     $('class-select').classList.toggle('hidden', s !== 'select');
-    this.player.view.visible = s !== 'title' && s !== 'select';
+    $('name-input').classList.toggle('hidden', s !== 'name');
+    $('hud').classList.toggle('hidden', !['play', 'pause', 'cutscene'].includes(s));
+    document.body.classList.toggle('in-cutscene', s === 'cutscene');
+    if (s === 'title') $('btn-continue').classList.toggle('hidden', !this.save.prologueDone);
+    if (s === 'title' || s === 'select' || s === 'name') this.player.view.visible = false;
     if (s === 'play') this.input.endFrame();
   }
 
@@ -206,32 +247,226 @@ class Game {
     this.setState('select');
   }
 
-  startGame(clsId) {
+  setupClass(clsId) {
     const p = this.player;
-    const first = !this.clsId;
     if (this.ctrl) this.ctrl.destroy();
     this.clsId = clsId;
     p.prefix = clsId;
     this.ctrl = new ClassController(this, p, clsId);
     this.hud.build(clsId);
     if (clsId === 'mage') this.hud.setElem(this.ctrl.elem);
-    if (first) {
-      p.x = p.px = this.terrain.spawn.x;
-      p.y = p.py = this.terrain.spawn.y;
-      p.z = p.pz = this.terrain.groundAt(p.x, p.y);
-      this.combat.spawnInitial();
-    }
     p.alive = true;
     p.hp = p.maxHp;
     p.ult = 0;
     p.potions = 3;
+    this.save.cls = clsId;
+  }
+
+  onClassPicked(clsId) {
+    if (this.selectFrom === 'pause') {
+      this.setupClass(clsId);
+      this.saveGame();
+      this.setState('play');
+      this.toast(`${CLASSES[clsId].name}(으)로 바꿨어요`);
+      return;
+    }
+    this.setupClass(clsId);
+    this.saveGame();
+    this.player.view.visible = true;
+    runPrologue(this);
+  }
+
+  continueGame() {
+    this.setupClass(this.save.cls || 'warrior');
+    this.enterChapter1();
+  }
+
+  async enterChapter1() {
+    this.loadZone('meadow');
+    this.player.view.visible = true;
+    this.player.hp = this.player.maxHp;
+    this.player.potions = 3;
+    this.combat.respawn = true;
+    this.combat.spawnInitial();
     this.setState('play');
-    this.toast(`${CLASSES[clsId].name} · 초원 시험 구역`);
     $('help').classList.remove('hidden');
     clearTimeout(this.helpTimer);
     this.helpTimer = setTimeout(() => $('help').classList.add('hidden'), 10000);
+    const f = $('fade');
+    f.style.transition = 'opacity 0.8s';
+    f.style.opacity = '0';
+    setTimeout(() => f.classList.add('hidden'), 800);
+    await this.director.chapter('제1장 · 초원', '첫 번째 천공석 파편을 찾아라');
   }
 
+  // ---------------- 맵 전환 ----------------
+  loadZone(name) {
+    const t = name === 'training' ? buildTraining() : name === 'deck' ? buildDeck() : buildMeadow(7);
+    this.zone = name;
+    $('zone-name').textContent = { training: '훈련 섬 · 수습 기사 시험', deck: '비행선 갑판', meadow: '제1장 · 초원' }[name];
+    // 옛 맵에 붙어 있던 캐릭터들을 먼저 떼어냄
+    this.player.view.parent?.removeChild(this.player.view);
+    for (const n of this.npcs) n.remove();
+    this.npcs = [];
+    this.combat.clear();
+    for (const pt of this.fx.live) pt.s.parent?.removeChild(pt.s);
+    const old = this.world;
+    this.terrain = t;
+    this.world = new WorldRenderer(this.atlas, t);
+    this.worldLayer.addChildAt(this.world.root, 0);
+    old.destroy();
+    this.player.t = t;
+    this.combat.t = t;
+    this.fx.wr = this.world;
+    const p = this.player;
+    p.x = p.px = t.spawn.x;
+    p.y = p.py = t.spawn.y;
+    p.z = p.pz = t.groundAt(p.x, p.y);
+    p.vx = p.vy = p.vz = 0;
+    p.safe = { x: p.x, y: p.y, z: p.z };
+    const c = this.camTargetFor(p);
+    this.cam.x = c.x;
+    this.cam.y = c.y;
+  }
+
+  camTargetFor(p) {
+    return { x: SX(p.x), y: SY(p.y, p.z) - 8 };
+  }
+
+  addNpc(id, x, y) {
+    const n = new Npc(this, id, x, y);
+    this.npcs.push(n);
+    return n;
+  }
+
+  removeNpc(n) {
+    n.remove();
+    this.npcs = this.npcs.filter((x) => x !== n);
+  }
+
+  // ---------------- 컷씬과 목표 ----------------
+  async cut(fn) {
+    this.setState('cutscene');
+    $('letterbox').classList.remove('hidden');
+    $('btn-skip').classList.remove('hidden');
+    $('objective').classList.add('hidden');
+    this.skipping = false;
+    try {
+      await fn(this.director);
+    } finally {
+      this.skipping = false;
+      $('letterbox').classList.add('hidden');
+      $('btn-skip').classList.add('hidden');
+      $('dialog').classList.add('hidden');
+      this.camOverride = null;
+      this.setState('play');
+    }
+  }
+
+  skipCutscene() {
+    if (this.state !== 'cutscene') return;
+    this.skipping = true;
+    this.dialog.skipNow();
+    for (const n of this.npcs) n.arrive();
+    const ts = this.timers;
+    this.timers = [];
+    for (const tm of ts) tm.fn();
+  }
+
+  objective(text, check, count) {
+    const box = $('objective');
+    box.querySelector('.obj-text').textContent = text;
+    box.querySelector('.obj-count').textContent = count ? count() : '';
+    box.classList.remove('hidden', 'done');
+    $('help').classList.add('hidden');
+    return new Promise((resolve) => {
+      this.obj = { check, count, resolve, box };
+    });
+  }
+
+  updateObjective() {
+    const o = this.obj;
+    if (!o || this.state !== 'play') return;
+    if (o.count) o.box.querySelector('.obj-count').textContent = o.count();
+    if (o.check()) {
+      this.obj = null;
+      o.box.classList.add('done');
+      this.sfx.ok();
+      setTimeout(() => {
+        o.box.classList.add('hidden');
+        o.resolve();
+      }, 650);
+    }
+  }
+
+  // ---------------- 섬 붕괴 (프롤로그 탈출) ----------------
+  crumbleCell(i, j) {
+    const info = this.world.crumble(i, j);
+    this.world.force = true;
+    if (!info) return;
+    const s = new Sprite(info.tex);
+    s.x = info.x + 8;
+    s.y = info.y + 8;
+    s.anchor.set(0.5);
+    s.tint = 0x9a9a9a;
+    this.combat.top.addChild(s);
+    let vy = -20 - Math.random() * 30;
+    let t = 0;
+    const rot = (Math.random() - 0.5) * 3;
+    this.tickers.push((dt) => {
+      t += dt;
+      vy += 380 * dt;
+      s.y += vy * dt;
+      s.rotation += rot * dt;
+      s.scale.set(Math.max(0.2, 1 - t * 0.7));
+      s.alpha = Math.max(0, 1 - t / 0.9);
+      if (t > 0.9) {
+        s.parent?.removeChild(s);
+        return false;
+      }
+      return true;
+    });
+  }
+
+  crumbleRows(from, to) {
+    for (let j = from; j <= to; j++)
+      for (let i = 0; i < this.terrain.w; i++) {
+        if (this.terrain.isVoid(i, j)) continue;
+        this.timers.push({ t: Math.random() * 0.35, fn: () => this.crumbleCell(i, j) });
+      }
+  }
+
+  startEscape() {
+    this.escape = { front: 1, delay: 1.3, done: 1, rumble: 0 };
+  }
+
+  stopEscape() {
+    this.escape = null;
+  }
+
+  updateEscape(dt) {
+    const e = this.escape;
+    if (!e || this.state !== 'play') return;
+    const edge = this.terrain.marks.edgeY;
+    if (e.delay > 0) e.delay -= dt;
+    else e.front = Math.min(edge + 2, e.front + 2.5 * dt);
+    while (e.done < Math.floor(e.front)) {
+      e.done++;
+      this.crumbleRows(e.done, e.done);
+    }
+    e.rumble -= dt;
+    if (e.rumble <= 0) {
+      e.rumble = 0.5;
+      this.shake(2);
+      this.sfx.noise(0.3, 0.06);
+    }
+    // 떨어지면 무너지는 선보다 앞쪽 길 위로 복귀
+    const row = Math.min(edge - 3, Math.floor(e.front) + 6);
+    const x = 12 + Math.sin(row * 0.45) * 2.2;
+    this.player.safe = { x, y: row + 0.5, z: 0 };
+  }
+
+  // ---------------- 전투 연출 ----------------
   // ---------------- 전투 연출 ----------------
   hitstop(t) {
     this.hitstopT = Math.max(this.hitstopT, t);
@@ -323,10 +558,35 @@ class Game {
   }
 
   bindUI() {
-    $('btn-start').addEventListener('click', () => this.openClassSelect('title'));
+    $('btn-start').addEventListener('click', () => {
+      $('name-field').value = this.save.name || '';
+      $('name-err').textContent = '';
+      this.setState('name');
+      setTimeout(() => $('name-field').focus(), 50);
+    });
+    $('btn-continue').addEventListener('click', () => this.continueGame());
+    const okName = () => {
+      const v = $('name-field').value.trim();
+      let err = '';
+      if (v.length < 2 || v.length > 8) err = '이름은 2~8글자로 지어주세요';
+      else if (!/^[가-힣a-zA-Z0-9]+$/.test(v)) err = '한글, 영문, 숫자만 쓸 수 있어요';
+      else if (BAD_WORDS.some((w) => v.toLowerCase().includes(w))) err = '다른 이름을 지어주세요';
+      $('name-err').textContent = err;
+      if (err) return;
+      this.save = { name: v };
+      this.saveGame();
+      this.openClassSelect('new');
+    };
+    $('btn-name-ok').addEventListener('click', okName);
+    $('name-field').addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') okName();
+    });
+    $('btn-name-back').addEventListener('click', () => this.setState('title'));
+    $('btn-skip').addEventListener('click', () => this.skipCutscene());
     $('btn-change-class').addEventListener('click', () => this.openClassSelect('pause'));
-    $('btn-class-back').addEventListener('click', () => this.setState(this.selectFrom === 'pause' ? 'pause' : 'title'));
-    buildClassSelect((id) => this.startGame(id));
+    $('btn-class-back').addEventListener('click', () => this.setState(this.selectFrom === 'pause' ? 'pause' : this.selectFrom === 'new' ? 'name' : 'title'));
+    buildClassSelect((id) => this.onClassPicked(id));
     this.input.attachMouse(this.app.canvas);
     $('btn-pause').addEventListener('click', () => this.togglePause());
     $('btn-resume').addEventListener('click', () => this.togglePause());
@@ -442,6 +702,26 @@ class Game {
     if (this.state === 'play' && this.input.consume('pause')) this.togglePause();
     else if (this.state === 'pause' && this.input.consume('pause')) this.togglePause();
 
+    // 타이머, 연출
+    if (this.state !== 'pause') {
+      for (let k = this.timers.length - 1; k >= 0; k--) {
+        const tm = this.timers[k];
+        tm.t -= dt;
+        if (tm.t <= 0) {
+          this.timers.splice(k, 1);
+          tm.fn();
+        }
+      }
+      this.tickers = this.tickers.filter((fn) => fn(dt));
+      for (const n of this.npcs) n.update(dt);
+      this.dialog.update(dt);
+      if (this.player.knockedT > 0) this.player.knockedT -= dt;
+    }
+    if (playing) {
+      this.updateObjective();
+      this.updateEscape(dt);
+    }
+
     if (playing && this.hitstopT > 0) {
       // 히트스톱: 잠깐 시간을 멈춰 타격감을 줌
       this.hitstopT -= dt;
@@ -469,6 +749,7 @@ class Game {
     const ps = this.player.render(alpha, this.world);
     if (this.ctrl) this.ctrl.renderWeapon();
     this.combat.render(this.world);
+    for (const n of this.npcs) n.render(this.world);
 
     // 카메라
     let tx;
@@ -478,11 +759,14 @@ class Game {
       const tt = performance.now() / 1000;
       tx = c.x + Math.sin(tt * 0.12) * 90;
       ty = c.y + Math.cos(tt * 0.09) * 50;
+    } else if (this.camOverride) {
+      tx = this.camOverride.x;
+      ty = this.camOverride.y;
     } else {
       tx = ps.sx + this.player.vx * 3;
       ty = ps.sy - 8 + this.player.vy * 3;
     }
-    const k = 1 - Math.exp(-dt * (this.state === 'title' ? 1.5 : 7));
+    const k = 1 - Math.exp(-dt * (this.state === 'title' ? 1.5 : this.camOverride ? this.camOverride.speed : 7));
     this.cam.x += (tx - this.cam.x) * k;
     this.cam.y += (ty - this.cam.y) * k;
     let sx = 0;
@@ -514,6 +798,7 @@ class Game {
   handleEvents() {
     const p = this.player;
     for (const e of p.events) {
+      if (e === 'roll') this.stats.rolls++;
       if (e === 'roll') this.fx.burst(p.x, p.y, p.z, { count: 7, speed: 1.6, up: 1.2, color: 0xe9dcc0 });
       else if (e === 'land') {
         this.fx.burst(p.x, p.y, p.z, { count: 10, speed: 2.4, up: 1.4, color: 0xe9dcc0 });
@@ -566,7 +851,9 @@ class Game {
   }
 }
 
-new Game().start().catch((e) => {
+const game = new Game();
+if (import.meta.env.DEV) window.__game = game;
+game.start().catch((e) => {
   const el = document.getElementById('loading-text');
   if (el) el.textContent = '불러오기에 실패했어요. 새로고침해 주세요.';
   // eslint-disable-next-line no-console

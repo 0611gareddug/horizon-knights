@@ -1,5 +1,5 @@
 // 지형 데이터: 칸마다 윗면 높이, 바닥 깊이, 재질, 막힘 여부
-export const MAT_NAMES = ['grass', 'dirt', 'path', 'stone'];
+export const MAT_NAMES = ['grass', 'dirt', 'path', 'stone', 'plank'];
 export const MAT = Object.fromEntries(MAT_NAMES.map((n, i) => [n, i]));
 
 export class Terrain {

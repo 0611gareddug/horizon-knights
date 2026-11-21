@@ -58,6 +58,7 @@ export class Sky {
       this.root.addChild(layer);
     }
     this.time = 0;
+    this.wind = 1;
   }
 
   update(dt, camX, camY, viewW, viewH) {
@@ -66,7 +67,7 @@ export class Sky {
     this.grad.height = viewH;
     const span = viewW + 200;
     for (const s of this.clouds) {
-      s.drift += s.speed * dt;
+      s.drift += s.speed * dt * this.wind * (this.wind > 1 ? 6 : 1);
       let x = s.baseX - s.drift - camX * s.par;
       x = ((x % span) + span) % span - 100;
       s.x = Math.round(x);
@@ -74,7 +75,8 @@ export class Sky {
     }
     for (const l of this.seas) {
       const tw = l.tw;
-      const off = (((-camX * l.par - this.time * 3 * l.par * 10) % tw) + tw) % tw;
+      l.scroll = (l.scroll || 0) + dt * 30 * l.par * this.wind * (this.wind > 1 ? 4 : 1);
+      const off = (((-camX * l.par - l.scroll) % tw) + tw) % tw;
       const need = Math.ceil(viewW / tw) + 2;
       l.children.forEach((s, k) => {
         s.visible = k < need;

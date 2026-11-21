@@ -141,6 +141,7 @@ export class ClassController {
       const sk = this.def.skills[k];
       this.cds[k] = sk.cd;
       this[`sk_${sk.id}`](aim);
+      this.g.stats.skills++;
     }
     if (input.consume('ult')) {
       if (p.ult >= 100 && !busy) {
@@ -166,6 +167,7 @@ export class ClassController {
     p.lunge(aim.dx, aim.dy, last ? 1.6 : 1.0);
     const hits = c.inArc(p.x, p.y, aim.dx, aim.dy, last ? 1.55 : 1.35, 1.15);
     c.slashFx(p.x, p.y, p.z, this.aimAngle, last, this.swingFlip);
+    this.g.sfx.swing();
     for (const e of hits) c.damage(e, this.atk(last ? 1.5 : 1), { kx: aim.dx, ky: aim.dy, knock: last ? 7 : 2.5 });
     if (hits.length) {
       this.g.hitstop(last ? 0.08 : 0.045);
@@ -242,6 +244,7 @@ export class ClassController {
     const c = this.g.combat;
     const full = charge >= 0.98;
     this.atkCd = 0.22;
+    this.g.sfx.shoot();
     p.faceTo(aim.dx, aim.dy);
     c.shoot({
       x: p.x + aim.dx * 0.4,
@@ -376,6 +379,7 @@ export class ClassController {
     const c = this.g.combat;
     this.atkCd = 0.34;
     this.swing = 0.12;
+    this.g.sfx.shoot();
     p.faceTo(aim.dx, aim.dy);
     const col = ELEM_COLOR[this.overload > 0 ? 'lightning' : this.elem];
     c.shoot({
@@ -503,7 +507,7 @@ export class ClassController {
       p.view.removeChild(w);
       p.view.addChildAt(w, up ? p.view.getChildIndex(p.body) : p.view.getChildIndex(p.body) + 1);
     }
-    w.visible = p.alive && p.rollT <= 0;
+    w.visible = p.alive && p.rollT <= 0 && !(p.knockedT > 0);
     const hx = Math.cos(a) * 4;
     const hy = -6 + Math.sin(a) * 2;
     w.x = Math.round(hx);

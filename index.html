@@ -29,12 +29,13 @@
               <span class="logo-sub">HORIZON KNIGHTS</span>
             </div>
             <div class="menu">
-              <button class="btn btn-primary" id="btn-start">시작하기</button>
+              <button class="btn btn-primary hidden" id="btn-continue">이어하기</button>
+              <button class="btn btn-primary" id="btn-start">새로 시작</button>
               <button class="btn" disabled title="준비 중">협동 <small>준비 중</small></button>
               <button class="btn" disabled title="준비 중">랭킹 <small>준비 중</small></button>
               <button class="btn" id="btn-title-settings">설정</button>
             </div>
-            <div class="title-foot">개발 버전 0.2 · 2단계 전투 미리보기</div>
+            <div class="title-foot">개발 버전 0.3 · 프롤로그 + 전투</div>
           </div>
         </div>
 
@@ -70,6 +71,16 @@
           <div class="touch-buttons" id="touch-buttons"></div>
         </div>
 
+        <div id="name-input" class="screen dim hidden">
+          <div class="panel">
+            <div class="panel-title">수습 기사의 이름은?</div>
+            <input id="name-field" maxlength="8" autocomplete="off" spellcheck="false" placeholder="2~8글자" />
+            <div class="name-err" id="name-err"></div>
+            <button class="btn btn-primary" id="btn-name-ok">확인</button>
+            <button class="btn" id="btn-name-back">뒤로</button>
+          </div>
+        </div>
+
         <div id="class-select" class="screen dim hidden">
           <div class="panel panel-wide">
             <div class="panel-title">직업을 고르세요</div>
@@ -78,6 +89,20 @@
           </div>
         </div>
 
+        <div id="letterbox" class="hidden"><i></i><i></i></div>
+        <div id="objective" class="hidden"><span class="obj-label">목표</span><span class="obj-text"></span><span class="obj-count"></span></div>
+        <div id="dialog" class="hidden">
+          <img class="dlg-portrait" alt="" />
+          <div class="dlg-body">
+            <div class="dlg-name"></div>
+            <div class="dlg-text"></div>
+          </div>
+          <div class="dlg-next hidden">▼</div>
+        </div>
+        <button id="btn-skip" class="hidden">건너뛰기 ▶▶</button>
+        <div id="chapter" class="hidden"><b></b><span></span></div>
+        <div id="narration" class="hidden"><p></p></div>
+        <div id="fade" class="hidden"></div>
         <div id="float"></div>
         <div id="flash"></div>
         <div id="hurtfx"></div>

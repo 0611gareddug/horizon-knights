@@ -57,6 +57,7 @@ export class Player {
     this.healLeft = 0;
     this.deadT = 0;
     this.hurtCd = 0;
+    this.knockedT = 0;
 
     this.view = new Container();
     this.shadow = new Sprite(atlas.tex('shadow_m'));
@@ -301,7 +302,9 @@ export class Player {
     const n = ANIMS[this.anim];
     const frame = this.anim === 'roll' ? Math.min(n - 1, Math.floor(this.animT * fps)) : Math.floor(this.animT * fps) % n;
     const dirName = facingName(this.fx, this.fy);
-    this.body.texture = this.atlas.tex(`${this.prefix}_${this.anim}_${dirName}_${frame}`);
+    this.body.texture = this.knockedT > 0
+      ? this.atlas.tex(`${this.prefix}_roll_D_1`)
+      : this.atlas.tex(`${this.prefix}_${this.anim}_${dirName}_${frame}`);
     this.view.visible = this.alive || this.deadT > 1.3;
     this.body.alpha = this.iframe > 0 && this.rollT <= 0 && this.dashT <= 0 ? (Math.floor(this.iframe * 20) % 2 ? 0.35 : 1) : 1;
     this.body.tint = this.hurtCd > 0.38 ? 0xff7a7a : 0xffffff;
