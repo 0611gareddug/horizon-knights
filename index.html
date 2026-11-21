@@ -35,7 +35,7 @@
               <button class="btn" disabled title="준비 중">랭킹 <small>준비 중</small></button>
               <button class="btn" id="btn-title-settings">설정</button>
             </div>
-            <div class="title-foot">개발 버전 0.3 · 프롤로그 + 전투</div>
+            <div class="title-foot">개발 버전 0.4 · 제1장 초원</div>
           </div>
         </div>
 
@@ -46,6 +46,7 @@
               <div class="hp-bar"><div class="hp-fill" id="hp-fill"></div></div>
             </div>
             <div class="zone-name" id="zone-name">초원 · 시험 구역</div>
+            <div class="stage-hud hidden" id="stage-hud"><span class="lives" id="lives"></span><span class="gold-ico"></span><b id="gold">0</b></div>
           </div>
           <div class="hud-tr">
             <button class="icon-btn" id="btn-pause" aria-label="일시정지">
@@ -69,6 +70,7 @@
           <div id="joy-zone"></div>
           <div id="joy" class="hidden"><div id="joy-knob"></div></div>
           <div class="touch-buttons" id="touch-buttons"></div>
+          <button class="tbtn tbtn-interact hidden" id="tb-interact">조사</button>
         </div>
 
         <div id="name-input" class="screen dim hidden">
@@ -104,6 +106,18 @@
         <div id="narration" class="hidden"><p></p></div>
         <div id="fade" class="hidden"></div>
         <div id="float"></div>
+        <div id="prompt" class="hidden"></div>
+        <div id="bossbar" class="hidden"><div class="boss-name" id="boss-name"></div><div class="boss-track"><div class="boss-fill" id="boss-fill"></div></div></div>
+        <div id="bossintro" class="hidden"><small>초원의 폭군</small><b>바위등 멧돼지왕</b></div>
+        <div id="result" class="screen dim hidden">
+          <div class="panel">
+            <div class="panel-title res-title"></div>
+            <div class="res-stars"></div>
+            <div class="res-list"></div>
+            <button class="btn btn-primary" id="btn-retry">다시 도전</button>
+            <button class="btn" id="btn-res-title">타이틀로</button>
+          </div>
+        </div>
         <div id="flash"></div>
         <div id="hurtfx"></div>
 

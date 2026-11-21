@@ -11,6 +11,9 @@ import { Dialog } from './story/dialog.js';
 import { Director, Npc } from './story/director.js';
 import { runPrologue } from './story/prologue.js';
 import { buildTraining, buildDeck } from './world/zones.js';
+import { buildIsland1 } from './world/island1.js';
+import { registerMonsters } from './art/monsters.js';
+import { Stage } from './gameplay/stage.js';
 import { registerFx } from './art/fx-art.js';
 import { Combat } from './gameplay/combat.js';
 import { ClassController, CLASSES } from './gameplay/classes.js';
@@ -68,6 +71,14 @@ class Game {
     this.obj = null;
     this.escape = null;
     this.sfx = new Sfx();
+    this.timeScale = 1;
+    this.stage = null;
+  }
+
+  slowmo(realSec, scale) {
+    this.timeScale = scale;
+    clearTimeout(this.slowTimer);
+    this.slowTimer = setTimeout(() => (this.timeScale = 1), realSec * 1000);
   }
 
   saveGame() {
@@ -152,6 +163,7 @@ class Game {
         for (const id of Object.keys(NPC_LOOKS)) registerCharacter(a, id, NPC_LOOKS[id]);
       }],
       ['무기를 벼리는 중…', (a) => registerFx(a)],
+      ['몬스터를 풀어놓는 중…', (a) => registerMonsters(a)],
       ['효과 준비 중…', (a) => {
         const p1 = new PixelCanvas(1, 1);
         p1.px(0, 0, 0xffffff);
@@ -282,12 +294,15 @@ class Game {
   }
 
   async enterChapter1() {
-    this.loadZone('meadow');
+    $('result').classList.add('hidden');
+    this.player.alive = true;
+    this.player.holdDead = false;
+    this.loadZone('island1');
     this.player.view.visible = true;
     this.player.hp = this.player.maxHp;
     this.player.potions = 3;
-    this.combat.respawn = true;
-    this.combat.spawnInitial();
+    this.player.ult = 0;
+    this.combat.respawn = false;
     this.setState('play');
     $('help').classList.remove('hidden');
     clearTimeout(this.helpTimer);
@@ -301,9 +316,11 @@ class Game {
 
   // ---------------- 맵 전환 ----------------
   loadZone(name) {
-    const t = name === 'training' ? buildTraining() : name === 'deck' ? buildDeck() : buildMeadow(7);
+    this.stage?.destroy();
+    this.stage = null;
+    const t = name === 'training' ? buildTraining() : name === 'deck' ? buildDeck() : name === 'island1' ? buildIsland1() : buildMeadow(7);
     this.zone = name;
-    $('zone-name').textContent = { training: '훈련 섬 · 수습 기사 시험', deck: '비행선 갑판', meadow: '제1장 · 초원' }[name];
+    $('zone-name').textContent = { training: '훈련 섬 · 수습 기사 시험', deck: '비행선 갑판', meadow: '제1장 · 초원', island1: '제1장 · 초원' }[name];
     // 옛 맵에 붙어 있던 캐릭터들을 먼저 떼어냄
     this.player.view.parent?.removeChild(this.player.view);
     for (const n of this.npcs) n.remove();
@@ -327,6 +344,7 @@ class Game {
     const c = this.camTargetFor(p);
     this.cam.x = c.x;
     this.cam.y = c.y;
+    if (name === 'island1') this.stage = new Stage(this);
   }
 
   camTargetFor(p) {
@@ -565,6 +583,16 @@ class Game {
       setTimeout(() => $('name-field').focus(), 50);
     });
     $('btn-continue').addEventListener('click', () => this.continueGame());
+    $('btn-retry').addEventListener('click', () => this.enterChapter1());
+    $('btn-res-title').addEventListener('click', () => {
+      $('result').classList.add('hidden');
+      this.loadZone('meadow');
+      this.setState('title');
+    });
+    $('btn-to-title').addEventListener('click', () => {
+      if (this.zone !== 'meadow') this.loadZone('meadow');
+    });
+    if (this.input.isTouch) this.input.attachButton($('tb-interact'), 'interact');
     const okName = () => {
       const v = $('name-field').value.trim();
       let err = '';
@@ -726,7 +754,7 @@ class Game {
       // 히트스톱: 잠깐 시간을 멈춰 타격감을 줌
       this.hitstopT -= dt;
     } else if (playing) {
-      this.acc += dt;
+      this.acc += dt * this.timeScale;
       let steps = 0;
       while (this.acc >= STEP && steps < 5 && this.hitstopT <= 0) {
         const aim = this.computeAim();
@@ -734,6 +762,7 @@ class Game {
         this.input.aimOverride = null;
         this.player.update(STEP, this.input);
         this.combat.update(STEP);
+        this.stage?.update(STEP);
         this.input.endFrame();
         this.handleEvents();
         this.acc -= STEP;
@@ -743,7 +772,7 @@ class Game {
     } else {
       this.input.endFrame();
     }
-    if (this.state !== 'pause') this.fx.update(dt);
+    if (this.state !== 'pause') this.fx.update(dt * this.timeScale);
 
     const alpha = playing ? this.acc / STEP : 1;
     const ps = this.player.render(alpha, this.world);
@@ -813,6 +842,7 @@ class Game {
       } else if (e === 'potionFail') {
         this.hud.flash('potion');
       } else if (e === 'dead') {
+        this.stage?.onPlayerDead();
         this.toast('쓰러졌어요… 시작 지점에서 다시 일어나요');
         this.shake(6);
         this.vibrate(120);

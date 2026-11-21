@@ -58,6 +58,8 @@ export class Player {
     this.deadT = 0;
     this.hurtCd = 0;
     this.knockedT = 0;
+    this.slowT = 0;
+    this.respawnPoint = null;
 
     this.view = new Container();
     this.shadow = new Sprite(atlas.tex('shadow_m'));
@@ -134,7 +136,7 @@ export class Player {
   }
 
   hurt(amount, kx = 0, ky = 0) {
-    if (!this.alive || this.iframe > 0 || this.rollT > 0 || this.hurtCd > 0) return;
+    if (!this.alive || this.iframe > 0 || this.rollT > 0 || this.hurtCd > 0) return 0;
     const reduce = 1 - this.def / (this.def + 30);
     const dmg = Math.max(1, Math.round(amount * reduce * this.guard));
     this.hp -= dmg;
@@ -150,6 +152,7 @@ export class Player {
       this.deadT = 1.6;
       this.events.push('dead');
     }
+    return dmg;
   }
 
   blockedAt(x, y) {
@@ -185,11 +188,12 @@ export class Player {
     if (!this.alive) {
       this.deadT -= dt;
       this.vx = this.vy = 0;
-      if (this.deadT <= 0) {
+      if (this.deadT <= 0 && !this.holdDead) {
         this.alive = true;
         this.hp = this.maxHp;
-        this.x = this.px = this.t.spawn.x;
-        this.y = this.py = this.t.spawn.y;
+        const rp = this.respawnPoint || this.t.spawn;
+        this.x = this.px = rp.x;
+        this.y = this.py = rp.y;
         this.z = this.pz = this.t.groundAt(this.x, this.y);
         this.iframe = 1.5;
         this.potions = 3;
@@ -200,7 +204,8 @@ export class Player {
 
     let [mx, my] = input.moveVector();
     if (this.lockT > 0 || this.dashT > 0) mx = my = 0;
-    const mag = Math.min(1, Math.hypot(mx, my)) * this.moveMul;
+    this.slowT = Math.max(0, this.slowT - dt);
+    const mag = Math.min(1, Math.hypot(mx, my)) * this.moveMul * (this.slowT > 0 ? 0.6 : 1);
     const wx = mag > 0 ? mx / Math.hypot(mx, my) : 0;
     const wy = mag > 0 ? my / Math.hypot(mx, my) : 0;
     if (mag > 0.1 && this.moveMul >= 1) {

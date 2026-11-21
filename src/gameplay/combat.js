@@ -2,11 +2,11 @@
 import { Container, Sprite, Graphics } from 'pixi.js';
 import { sx as SX, sy as SY, TILE, LEVEL } from '../core/view.js';
 
-const ELEM_COLOR = { fire: 0xff8a3d, ice: 0x7ad0ff, lightning: 0xd59cff, none: 0xffffff, hurt: 0xff5a5a };
+const ELEM_COLOR = { fire: 0xff8a3d, ice: 0x7ad0ff, lightning: 0xd59cff, none: 0xffffff, hurt: 0xff5a5a, heal: 0x7dff8a, gold: 0xffd84a };
 export { ELEM_COLOR };
 
 // ---------------- 지형 위 이동 (적 공용) ----------------
-function blocked(t, x, y, z, r) {
+export function blocked(t, x, y, z, r) {
   for (let a = 0; a < 8; a++) {
     const i = Math.floor(x + Math.cos((a * Math.PI) / 4) * r);
     const j = Math.floor(y + Math.sin((a * Math.PI) / 4) * r * 0.7);
@@ -17,7 +17,7 @@ function blocked(t, x, y, z, r) {
   return false;
 }
 
-function moveActor(t, a, dx, dy) {
+export function moveActor(t, a, dx, dy) {
   if (!blocked(t, a.x + dx, a.y, a.z, a.r)) a.x += dx;
   else a.kvx = 0;
   if (!blocked(t, a.x, a.y + dy, a.z, a.r)) a.y += dy;
@@ -25,7 +25,7 @@ function moveActor(t, a, dx, dy) {
 }
 
 // ---------------- 적 ----------------
-class Enemy {
+export class Enemy {
   constructor(combat, kind, x, y) {
     this.c = combat;
     this.kind = kind;
@@ -232,6 +232,7 @@ class Dummy extends Enemy {
     this.barY = 24;
     this.chunkColor = 0xe0c27a;
     this.wob = 0;
+    this.static = true;
   }
   frameName() {
     return 'dummy';
@@ -314,7 +315,8 @@ export class Combat {
     }
   }
 
-  onEnemyDeath(e) {
+  onEnemyDeath(e, fell) {
+    this.g.stage?.onEnemyDeath(e, fell);
     if (e.kind === 'slime') {
       this.stats.kills++;
       if (this.respawn) this.after(8, () => this.spawnSlime(e.red));
@@ -366,11 +368,25 @@ export class Combat {
   damage(e, amount, opts = {}) {
     if (!e.alive) return 0;
     const p = this.g.player;
+    if (e.invuln) {
+      this.number(e.x, e.y, e.z, 0, false, 'none');
+      return 0;
+    }
     let dmg = amount * e.dmgTakenMul;
     let crit = opts.crit;
     if (crit === undefined) crit = Math.random() < (p.critChance || 0.1);
     if (crit) dmg *= 1.8;
+    if (e.modDamage) dmg = e.modDamage(dmg, opts);
     dmg = Math.max(1, Math.round(dmg * (0.92 + Math.random() * 0.16)));
+    if (e.shield > 0) {
+      const ab = Math.min(e.shield, dmg);
+      e.shield -= ab;
+      dmg -= ab;
+      if (dmg <= 0) {
+        this.fx.burst(e.x, e.y, e.z + 0.6, { count: 4, speed: 2, color: 0x9df0ff });
+        return 0;
+      }
+    }
     e.hp -= dmg;
     e.lastHit = 0;
     e.flash = 0.07;
@@ -379,7 +395,8 @@ export class Combat {
       if (!opts.quiet) this.stats.dummyHits++;
     }
     this.g.sfx.hit(crit);
-    if (!opts.noKnock && e.kind !== 'dummy') {
+    e.onHurt?.(dmg, opts);
+    if (!opts.noKnock && e.kind !== 'dummy' && !e.noKnock) {
       const k = opts.knock ?? 3;
       e.kvx += (opts.kx || 0) * k;
       e.kvy += (opts.ky || 0) * k;
@@ -496,6 +513,102 @@ export class Combat {
     return a;
   }
 
+  // 플레이어를 해치는 장판 (불길 등)
+  hostileArea(x, y, z, r, time, tick, dmg, color) {
+    return this.area({
+      x,
+      y,
+      z,
+      r,
+      time,
+      tick,
+      color,
+      hostile: true,
+      onTick: () => {
+        const p = this.g.player;
+        if (p.alive && Math.hypot(p.x - x, p.y - y) < r + 0.25 && Math.abs(p.z - z) < 0.8) p.hurt(dmg, 0, 0);
+      },
+    });
+  }
+
+  // 예고 후 폭발: 플레이어 피해 dmgP, 적 피해 dmgE
+  explodeAt(x, y, z, r, delay, dmgP, dmgE, color = 0xff5a4a, onPlayer) {
+    this.telegraph(x, y, z, r, delay, color);
+    this.after(delay, () => this.boom(x, y, z, r, dmgP, dmgE, onPlayer, color));
+  }
+
+  boom(x, y, z, r, dmgP, dmgE, onPlayer, color = 0xff8a3d) {
+    const p = this.g.player;
+    const d = Math.hypot(p.x - x, p.y - y);
+    if (dmgP && p.alive && d < r + 0.25) {
+      const kx = (p.x - x) / (d || 1);
+      const ky = (p.y - y) / (d || 1);
+      if (onPlayer) onPlayer(dmgP, kx, ky);
+      else p.hurt(dmgP, kx, ky);
+    }
+    if (dmgE) for (const e of this.inCircle(x, y, r)) if (e.kind !== 'dummy') this.damage(e, dmgE, { kx: e.x - x, ky: e.y - y, knock: 6, crit: false });
+    this.ringFx(x, y, z, r * 0.8, color, 0.35);
+    this.fx.burst(x, y, z + 0.4, { count: 22, speed: 4.5, up: 3, color, size: 2, life: 0.5 });
+    this.fx.burst(x, y, z + 0.4, { count: 10, speed: 3, up: 2, color: 0x4a4458, size: 2, life: 0.7 });
+    this.g.shake(5);
+    this.g.sfx.boom();
+  }
+
+  // 포물선으로 던지는 돌 (떨어질 곳 미리 표시)
+  lob(x, y, z, tx, ty, time, dmg, r, onPlayer) {
+    const tz = this.t.groundAt(tx, ty);
+    const gz = tz === -Infinity ? z : tz;
+    this.telegraph(tx, ty, gz, r, time, 0xff6a4a);
+    const s = new Sprite(this.atlas.tex('rock_proj'));
+    s.anchor.set(0.5);
+    this.top.addChild(s);
+    let t = 0;
+    this.g.tickers.push((dt) => {
+      if (!s.parent) return false;
+      t += dt;
+      const k = Math.min(1, t / time);
+      const wx = x + (tx - x) * k;
+      const wy = y + (ty - y) * k;
+      const h = Math.sin(k * Math.PI) * 2.5 + z + (gz - z) * k;
+      s.x = SX(wx);
+      s.y = SY(wy, h + 0.4);
+      s.rotation += dt * 8;
+      if (k >= 1) {
+        s.parent?.removeChild(s);
+        const p = this.g.player;
+        const d = Math.hypot(p.x - tx, p.y - ty);
+        if (p.alive && d < r + 0.2) onPlayer(dmg, (p.x - tx) / (d || 1), (p.y - ty) / (d || 1));
+        this.fx.burst(tx, ty, gz + 0.2, { count: 8, speed: 2.5, up: 2, color: 0x9a9ca6, size: 2 });
+        return false;
+      }
+      return true;
+    });
+  }
+
+  // 직선 예고 (돌진)
+  lineTelegraph(x, y, z, dx, dy, len, w, time) {
+    return this.area({ x, y, z, r: 0, time, color: 0xff4040, telegraph: true, line: { dx, dy, len, w } });
+  }
+
+  // 치유 광선
+  beam(x1, y1, z1, x2, y2, z2, color) {
+    const g = new Graphics();
+    this.top.addChild(g);
+    let t = 0;
+    this.g.tickers.push((dt) => {
+      t += dt;
+      g.clear();
+      g.moveTo(SX(x1), SY(y1, z1) - 10).lineTo(SX(x2), SY(y2, z2) - 8).stroke({ color, width: 2, alpha: 1 - t / 0.4 });
+      if (t > 0.4) {
+        g.parent?.removeChild(g);
+        g.destroy();
+        return false;
+      }
+      return true;
+    });
+    this.fx.burst(x2, y2, z2 + 0.6, { count: 8, speed: 1.5, up: 2.5, color, gravity: 2 });
+  }
+
   telegraph(x, y, z, r, time, color = 0xff4040) {
     const a = this.area({ x, y, z, r, time, color, telegraph: true });
     return a;
@@ -549,6 +662,22 @@ export class Combat {
     }
     for (const e of this.enemies) if (e.alive) e.update(dt, p);
     this.enemies = this.enemies.filter((e) => e.alive);
+    // 적끼리 겹치지 않게 살짝 밀어냄
+    const mov = this.enemies.filter((e) => !e.static);
+    for (let a = 0; a < mov.length; a++)
+      for (let b = a + 1; b < mov.length; b++) {
+        const A = mov[a];
+        const B = mov[b];
+        const dx = B.x - A.x;
+        const dy = B.y - A.y;
+        const d = Math.hypot(dx, dy);
+        const min = A.r + B.r;
+        if (d > 0.001 && d < min) {
+          const push = ((min - d) / d) * 0.5;
+          moveActor(this.t, A, -dx * push * (B.heavy ? 1.6 : 1) * (A.heavy ? 0.2 : 1), -dy * push * (A.heavy ? 0.2 : 1));
+          moveActor(this.t, B, dx * push * (B.heavy ? 0.2 : 1), dy * push * (B.heavy ? 0.2 : 1));
+        }
+      }
 
     // 투사체
     for (const pr of this.projectiles) {
@@ -563,8 +692,17 @@ export class Combat {
         pr.onEnd?.(pr);
         continue;
       }
+      if (pr.hostile) {
+        const pl = this.g.player;
+        if (pl.alive && Math.hypot(pl.x - pr.x, pl.y - pr.y) < 0.32 + pr.radius && Math.abs(pl.z - (pr.z - 0.6)) < 1) {
+          pl.hurt(pr.dmg, pr.dx, pr.dy);
+          pr.alive = false;
+          pr.onEnd?.(pr);
+        }
+        continue;
+      }
       for (const e of this.enemies) {
-        if (!e.alive || pr.hit.has(e)) continue;
+        if (!e.alive || pr.hit.has(e) || e.untargetable) continue;
         if (Math.hypot(e.x - pr.x, e.y - pr.y) < e.r + pr.radius) {
           pr.hit.add(e);
           pr.onHit?.(e, pr);
@@ -646,6 +784,20 @@ export class Combat {
       const cy = SY(a.y, a.z || 0);
       const rr = a.r * TILE;
       const fade = a.telegraph ? 1 : Math.min(1, (a.time - a.t) * 3, a.t * 6);
+      if (a.line) {
+        const { dx, dy, len, w } = a.line;
+        const nx = -dy * w * 0.5;
+        const ny = dx * w * 0.5;
+        const pts = (L) => [
+          SX(a.x + nx), SY(a.y + ny, a.z),
+          SX(a.x + nx + dx * L), SY(a.y + ny + dy * L, a.z),
+          SX(a.x - nx + dx * L), SY(a.y - ny + dy * L, a.z),
+          SX(a.x - nx), SY(a.y - ny, a.z),
+        ];
+        g.poly(pts(len)).fill({ color: a.color, alpha: 0.16 });
+        g.poly(pts(len * k)).fill({ color: a.color, alpha: 0.28 });
+        continue;
+      }
       g.ellipse(cx, cy, rr, rr * 0.85).fill({ color: a.color, alpha: (a.telegraph ? 0.18 : 0.22) * fade });
       if (a.telegraph) g.ellipse(cx, cy, rr * k, rr * 0.85 * k).fill({ color: a.color, alpha: 0.28 });
       g.ellipse(cx, cy, rr, rr * 0.85).stroke({ color: a.color, alpha: 0.7 * fade, width: 1 });

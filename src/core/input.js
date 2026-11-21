@@ -21,6 +21,7 @@ export class Input {
       ult: ['KeyF'],
       potion: ['Digit1'],
       swap: ['ShiftLeft', 'ShiftRight', 'Tab'],
+      interact: ['KeyG'],
     };
     this.codeToAction = new Map();
     for (const [a, codes] of Object.entries(this.bindings)) for (const c of codes) this.codeToAction.set(c, a);
