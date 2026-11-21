@@ -1,6 +1,6 @@
 // 먼지, 파편 같은 작은 입자 효과 (객체 재사용으로 끊김 방지)
 import { Sprite } from 'pixi.js';
-import { toScreenX, toScreenY } from '../core/iso.js';
+import { sx as SX, sy as SY } from '../core/view.js';
 
 export class Particles {
   constructor(atlas, worldRenderer, max = 160) {
@@ -61,8 +61,8 @@ export class Particles {
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       p.z = Math.max(p.z + p.vz * dt, p.z - 2);
-      p.s.x = Math.round(toScreenX(p.x, p.y));
-      p.s.y = Math.round(toScreenY(p.x, p.y, p.z));
+      p.s.x = Math.round(SX(p.x));
+      p.s.y = Math.round(SY(p.y, p.z));
       p.s.alpha = Math.min(1, (p.life / p.max) * 2);
       this.wr.placeEntity(p.s, p.x, p.y);
     }

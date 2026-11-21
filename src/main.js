@@ -13,11 +13,11 @@ import { Particles } from './render/effects.js';
 import { Player } from './gameplay/player.js';
 import { Input } from './core/input.js';
 import { loadSettings, saveSettings } from './core/settings.js';
-import { toScreenX, toScreenY } from './core/iso.js';
+import { sx as SX, sy as SY } from './core/view.js';
 import { enableProtection } from './security/protect.js';
 
 const $ = (id) => document.getElementById(id);
-const VIEW_H = 240; // 화면에 보이는 게임 픽셀 높이 (기준)
+const VIEW_H = 192; // 화면에 보이는 게임 픽셀 높이 (기준)
 const STEP = 1 / 60;
 
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
@@ -124,7 +124,7 @@ class Game {
 
   islandCenter() {
     const t = this.terrain;
-    return { x: toScreenX(t.w / 2, t.h / 2), y: toScreenY(t.w / 2, t.h / 2, 0) };
+    return { x: SX(t.w / 2), y: SY(t.h / 2, 0) };
   }
 
   // ---------------- 화면 크기와 품질 ----------------
@@ -339,11 +339,11 @@ class Game {
     if (this.state === 'title') {
       const c = this.islandCenter();
       const tt = performance.now() / 1000;
-      tx = c.x + Math.sin(tt * 0.12) * 120;
-      ty = c.y - 40 + Math.cos(tt * 0.09) * 40;
+      tx = c.x + Math.sin(tt * 0.12) * 90;
+      ty = c.y + Math.cos(tt * 0.09) * 50;
     } else {
       tx = ps.sx + this.player.vx * 3;
-      ty = ps.sy - 10 + this.player.vy * 2;
+      ty = ps.sy - 8 + this.player.vy * 3;
     }
     const k = 1 - Math.exp(-dt * (this.state === 'title' ? 1.5 : 7));
     this.cam.x += (tx - this.cam.x) * k;

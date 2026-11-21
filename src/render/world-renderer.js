@@ -1,139 +1,125 @@
-// 지형과 캐릭터를 올바른 앞뒤 순서로 그리는 렌더러
-// 대각선(x+y)마다 컨테이너를 하나씩 둔다: [블록들 ... , 캐릭터 레이어]
-// -> 정렬 비용이 거의 없고, 화면 밖 대각선은 통째로 건너뛸 수 있다.
+// 탑다운 지형 렌더러
+// 행(y)마다 컨테이너 하나: [바닥/벽 ... , 캐릭터 레이어]. 아래 행일수록 앞(나중에 그림).
 import { Container, Sprite } from 'pixi.js';
-import { toScreenX, toScreenY } from '../core/iso.js';
+import { TILE, LEVEL, sx as SX, sy as SY } from '../core/view.js';
 import { MAT_NAMES } from '../world/terrain.js';
 import { VARIANTS } from '../art/tiles.js';
 
-const DIAG_PAD = 6;
+const PAD = 6;
 
 export class WorldRenderer {
   constructor(atlas, terrain) {
     this.atlas = atlas;
     this.t = terrain;
     this.root = new Container();
-    this.diags = [];
-    this.diagOffset = DIAG_PAD;
+    this.rows = [];
     this.lastCull = { x: NaN, y: NaN, w: 0, h: 0 };
     this.build();
   }
 
-  diagIndex(sum) {
-    return Math.max(0, Math.min(this.diags.length - 1, sum + this.diagOffset));
+  rowIndex(j) {
+    return Math.max(0, Math.min(this.rows.length - 1, j + PAD));
   }
 
   build() {
     const t = this.t;
-    const count = t.w + t.h - 1 + DIAG_PAD * 2;
-    for (let d = 0; d < count; d++) {
-      const blocks = new Container();
-      const ents = new Container();
-      ents.sortableChildren = true;
+    for (let r = 0; r < t.h + PAD * 2; r++) {
       const c = new Container();
-      c.addChild(blocks, ents);
-      c.blocks = blocks;
-      c.ents = ents;
+      c.blocks = new Container();
+      c.ents = new Container();
+      c.ents.sortableChildren = true;
+      c.addChild(c.blocks, c.ents);
       c.items = [];
       c.minY = Infinity;
       c.maxY = -Infinity;
-      this.diags.push(c);
+      this.rows.push(c);
       this.root.addChild(c);
     }
-
-    const covers = (i, j, k, kTop) => {
-      // 이웃 칸이 블록 [k, kTop] 옆면을 완전히 가리는지
-      if (t.isVoid(i, j)) return false;
-      const nt = t.topAt(i, j);
-      const nb = t.bottom[t.idx(i, j)];
-      return nt >= kTop && nb <= k;
-    };
-
-    const pushSprite = (sum, name, x, y, order) => {
+    const add = (j, name, x, y) => {
       const s = new Sprite(this.atlas.tex(name));
-      s.x = x;
-      s.y = y;
-      s.order = order;
-      const c = this.diags[this.diagIndex(sum)];
+      s.x = Math.round(x);
+      s.y = Math.round(y);
+      const c = this.rows[this.rowIndex(j)];
+      c.blocks.addChild(s);
       c.items.push(s);
-      s.bx0 = x;
-      s.bx1 = x + s.texture.width;
-      c.minY = Math.min(c.minY, y);
-      c.maxY = Math.max(c.maxY, y + s.texture.height);
+      s.bx0 = s.x;
+      s.bx1 = s.x + s.texture.width;
+      c.minY = Math.min(c.minY, s.y);
+      c.maxY = Math.max(c.maxY, s.y + s.texture.height);
+      return s;
     };
+    const v = (i, j, k = 0) => (((i * 7 + j * 13 + k * 5) % VARIANTS) + VARIANTS) % VARIANTS;
 
-    for (let j = 0; j < t.h; j++)
+    for (let j = 0; j < t.h; j++) {
+      // 1) 바닥 윗면, 테두리, 그림자
+      for (let i = 0; i < t.w; i++) {
+        if (t.isVoid(i, j)) continue;
+        const id = t.idx(i, j);
+        const T = t.top[id];
+        const mat = MAT_NAMES[t.mat[id]];
+        const topName = mat === 'dirt' ? 'path' : mat === 'grass' && T >= 1 ? 'grassH' : mat;
+        const x = SX(i);
+        const y = SY(j, T);
+        add(j, `top_${topName}_${v(i, j)}`, x, y);
+        const north = t.topAt(i, j - 1);
+        if (Number.isNaN(north) || north < T) add(j, 'edge_h', x, y);
+        const west = t.topAt(i - 1, j);
+        const east = t.topAt(i + 1, j);
+        if (Number.isNaN(west) || west < T) add(j, 'edge_v', x, y);
+        if (Number.isNaN(east) || east < T) add(j, 'edge_v', x + TILE - 1, y);
+        if (!Number.isNaN(north) && north > T) add(j, 'shade_strip', x, y);
+        if (!Number.isNaN(west) && west > T) add(j, 'shade_strip_v', x, y);
+      }
+      // 2) 앞면 (남쪽이 더 낮을 때)
       for (let i = 0; i < t.w; i++) {
         if (t.isVoid(i, j)) continue;
         const id = t.idx(i, j);
         const T = t.top[id];
         const B = t.bottom[id];
-        const surf = MAT_NAMES[t.mat[id]];
-        const sx = toScreenX(i, j);
-        const full = Math.floor(T);
-        const hasSlab = T - full > 0.01;
-        const kMax = hasSlab ? full : full - 1;
-        const v = (i * 7 + j * 13) % VARIANTS;
-        for (let k = B; k <= kMax; k++) {
-          const isSlab = hasSlab && k === full;
-          const kTop = isSlab ? T : k + 1;
-          const isTop = k === kMax;
-          const exposed = isTop || !covers(i, j + 1, k, kTop) || !covers(i + 1, j, k, kTop);
-          if (!exposed) continue;
-          let mat;
-          if (isTop) mat = surf;
-          else if (k >= 0) mat = k === kMax - 1 && (surf === 'grass' || surf === 'path') ? 'dirt' : 'stone';
-          else mat = 'under';
-          if (mat === 'stone' && k < 0) mat = 'under';
-          const hpx = isSlab ? 8 : 16;
-          const vv = (((v + k * 3) % VARIANTS) + VARIANTS) % VARIANTS;
-          const name = `blk_${mat}_${hpx}_${vv}`;
-          pushSprite(i + j, name, sx - 16, toScreenY(i, j, kTop), i * 48 + (k + 16));
+        const mat = MAT_NAMES[t.mat[id]];
+        const southVoid = t.isVoid(i, j + 1);
+        const hs = southVoid ? B : t.topAt(i, j + 1);
+        if (T <= hs) continue;
+        let z = T;
+        let first = true;
+        let k = 0;
+        while (z > hs + 1e-6) {
+          const frac = z - Math.floor(z);
+          const step = frac > 1e-6 ? frac : Math.min(1, z - hs);
+          const hpx = step >= 1 ? LEVEL : LEVEL / 2;
+          const kind = z <= 0 ? 'under' : mat === 'stone' ? 'stone' : 'dirt';
+          const pre = first && kind !== 'under' ? 'wallt' : 'wall';
+          add(j, `${pre}_${kind}_${hpx}_${v(i, j, k++)}`, SX(i), (j + 1) * TILE - z * LEVEL);
+          z -= step;
+          first = false;
         }
-        // 섬 아래 바위 고드름 (앞쪽이 트인 칸만)
-        const frontOpen = t.isVoid(i + 1, j) || t.isVoid(i, j + 1) ||
-          t.bottom[t.idx(i + 1, j)] > B || t.bottom[t.idx(i, j + 1)] > B;
-        if (frontOpen) {
-          pushSprite(i + j, `stal_${(i * 5 + j * 3) % VARIANTS}`, sx - 16, toScreenY(i, j, B) + 8, i * 48 + (B + 15));
-        }
+        if (southVoid) add(j, `fringe_${v(i, j)}`, SX(i), (j + 1) * TILE - B * LEVEL);
       }
-
-    // 장식 (나무, 덤불, 바위)
-    for (const p of t.props) {
-      const name = `prop_${p.type}_${p.v}`;
-      const m = this.atlas.anchor(name);
-      const top = t.topAt(p.i, p.j);
-      const x = toScreenX(p.i + 0.5, p.j + 0.5) - m.ax;
-      const y = toScreenY(p.i + 0.5, p.j + 0.5, top) - m.ay;
-      pushSprite(p.i + p.j, name, x, y, p.i * 48 + 47);
     }
-    // 바닥 장식 (꽃, 풀) - 블록 바로 위, 캐릭터보다 먼저
+
+    // 바닥 장식 (꽃, 풀)
     for (const d of t.decals) {
       const i = Math.floor(d.x);
       const j = Math.floor(d.y);
       const name = `prop_${d.type}_${d.v}`;
       const m = this.atlas.anchor(name);
-      const top = t.topAt(i, j);
-      const x = Math.round(toScreenX(d.x, d.y) - m.ax);
-      const y = Math.round(toScreenY(d.x, d.y, top) - m.ay);
-      pushSprite(i + j, name, x, y, i * 48 + 46);
+      add(j, name, SX(d.x) - m.ax, SY(d.y, t.topAt(i, j)) - m.ay);
     }
-
-    for (const c of this.diags) {
-      c.items.sort((a, b) => a.order - b.order);
-      for (const s of c.items) c.blocks.addChild(s);
+    // 장식 (나무, 덤불, 바위) — 칸 중심 아래쪽에 발을 둠
+    for (const p of t.props) {
+      const name = `prop_${p.type}_${p.v}`;
+      const m = this.atlas.anchor(name);
+      const top = t.topAt(p.i, p.j);
+      add(p.j, name, SX(p.i + 0.5) - m.ax, SY(p.j + 0.75, top) - m.ay);
     }
   }
 
-  // 캐릭터 스프라이트를 알맞은 대각선 레이어로 옮김
   placeEntity(sprite, x, y) {
-    const sum = Math.floor(x) + Math.floor(y);
-    const c = this.diags[this.diagIndex(sum)];
+    const c = this.rows[this.rowIndex(Math.floor(y))];
     if (sprite.parent !== c.ents) c.ents.addChild(sprite);
-    sprite.zIndex = x + y;
+    sprite.zIndex = y;
   }
 
-  // 화면 밖 스프라이트 숨기기 (view: 월드 화면좌표 기준 사각형)
   cull(vx, vy, vw, vh) {
     const L = this.lastCull;
     if (Math.abs(L.x - vx) < 4 && Math.abs(L.y - vy) < 4 && L.w === vw && L.h === vh) return;
@@ -141,12 +127,12 @@ export class WorldRenderer {
     L.y = vy;
     L.w = vw;
     L.h = vh;
-    const margin = 48;
-    const x0 = vx - margin;
-    const x1 = vx + vw + margin;
-    const y0 = vy - margin;
-    const y1 = vy + vh + margin;
-    for (const c of this.diags) {
+    const m = 40;
+    const x0 = vx - m;
+    const x1 = vx + vw + m;
+    const y0 = vy - m;
+    const y1 = vy + vh + m;
+    for (const c of this.rows) {
       const vis = c.maxY >= y0 && c.minY <= y1;
       c.blocks.visible = vis;
       if (!vis) continue;

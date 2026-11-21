@@ -1,109 +1,161 @@
-// 지형 블록 그림 생성 — 플랫 스타일 (단색 면 + 드문드문 무늬)
+// 탑다운 지형 타일 — 풀잎 결이 있는 바닥, 벽돌 무늬 흙 앞면
 import { PixelCanvas, rng } from '../render/pixel.js';
-import { drawIsoBox } from './iso-draw.js';
 
-export const VARIANTS = 4;
+export const VARIANTS = 6;
+const T = 16;
+const LV = 10;
 
-export const MATERIALS = {
-  grass: { top: 0x74d05e, mark: 0x5cb84e, lipL: 0x5cb84b, lipR: 0x4a9c3e, left: 0xa8744c, right: 0x83583a, spot: 0x8e6040 },
-  dirt: { top: 0xb27c50, mark: 0x9a6842, left: 0xa8744c, right: 0x83583a, spot: 0x8e6040 },
-  path: { top: 0xeccb90, mark: 0xd2ad72, lipL: 0xd8b67c, lipR: 0xbe9a62, left: 0xa8744c, right: 0x83583a, spot: 0x8e6040 },
-  stone: { top: 0xbcc2cc, mark: 0x9da4b2, left: 0x9aa1ae, right: 0x7c8392, spot: 0x878e9c },
-  under: { top: 0x8e684c, mark: 0x7a573e, left: 0x8e684c, right: 0x6c4e3a, spot: 0x5c4232 },
+export const PAL = {
+  grass: 0x5fbf4b,
+  grassLight: 0x7fd565,
+  grassDark: 0x4ca83e,
+  grassEdge: 0x3f8f35,
+  grassHigh: 0x6dcb55,
+  grassHighLight: 0x90de72,
+  speck: 0x9c6c46,
+  path: 0xe4c48c,
+  pathLight: 0xf2dab0,
+  pathDark: 0xc9a46c,
+  stone: 0xbac0ca,
+  stoneLight: 0xd6dae2,
+  stoneDark: 0x949bab,
+  dirt: 0x96603c,
+  dirtDark: 0x6e4429,
+  dirtLight: 0xab7349,
+  under: 0x7a5038,
+  underDark: 0x5a3a28,
+  lip: 0x4ca83e,
+  lipLight: 0x7fd565,
 };
 
-function topMarks(r, mat) {
-  // 윗면 장식 위치 (마름모 안쪽에만)
-  const marks = [];
-  const n = mat === 'grass' ? Math.floor(r() * 3) : mat === 'path' ? 2 + Math.floor(r() * 3) : Math.floor(r() * 2);
-  for (let k = 0; k < n; k++) {
-    const x = 8 + Math.floor(r() * 16);
-    const yy = 4 + Math.floor(r() * 7);
-    marks.push([x, yy]);
+// 풀 바닥: 세로 풀잎 결 + 작은 흙 점
+function grassTop(seed, high = false) {
+  const r = rng(seed * 131 + 7);
+  const pc = new PixelCanvas(T, T);
+  pc.rect(0, 0, T, T, high ? PAL.grassHigh : PAL.grass);
+  for (let k = 0; k < 20; k++) {
+    const x = Math.floor(r() * T);
+    const y = Math.floor(r() * T);
+    const len = 1 + Math.floor(r() * 2.4);
+    const c = r() < 0.5 ? (high ? PAL.grassHighLight : PAL.grassLight) : PAL.grassDark;
+    for (let d = 0; d < len; d++) pc.px(x, (y + d) % T, c);
   }
-  return marks;
-}
-
-function paintFor(mat, hpx, seed) {
-  const r = rng(seed * 7919 + 13);
-  const m = MATERIALS[mat];
-  const marks = new Set();
-  for (const [x, y] of topMarks(r, mat)) {
-    if (mat === 'grass') {
-      // 작은 풀잎 'v' 모양
-      marks.add(`${x},${y}`);
-      marks.add(`${x + 2},${y}`);
-      marks.add(`${x + 1},${y + 1}`);
-    } else if (mat === 'stone') {
-      marks.add(`${x},${y}`);
-      marks.add(`${x + 1},${y}`);
-      marks.add(`${x + 2},${y + 1}`);
-    } else {
-      marks.add(`${x},${y}`);
-      if (r() < 0.5) marks.add(`${x + 1},${y}`);
-    }
+  if (r() < 0.17) {
+    const x = Math.floor(r() * (T - 2));
+    const y = Math.floor(r() * T);
+    pc.px(x, y, PAL.speck);
+    pc.px(x + 1, y, PAL.speck);
   }
-  const lip = new Uint8Array(32).map(() => 2 + (r() < 0.22 ? 1 : 0));
-  const spots = new Set();
-  const nSpots = Math.floor(r() * 3) + (hpx > 8 ? 1 : 0);
-  for (let k = 0; k < nSpots; k++) {
-    const x = 2 + Math.floor(r() * 28);
-    const v = 5 + Math.floor(r() * Math.max(1, hpx - 7));
-    spots.add(`${x},${v}`);
-    spots.add(`${x + 1},${v}`);
-  }
-
-  return (face, x, y, u, v) => {
-    if (face === 'top') return marks.has(`${x},${v}`) ? m.mark : m.top;
-    const left = face === 'left';
-    if (m.lipL && v < lip[x]) return left ? m.lipL : m.lipR;
-    if (spots.has(`${x},${v}`)) return left ? m.spot : shadeRight(m.spot);
-    return left ? m.left : m.right;
-  };
-}
-
-function shadeRight(c) {
-  const r = (c >> 16) & 255;
-  const g = (c >> 8) & 255;
-  const b = c & 255;
-  return (Math.round(r * 0.8) << 16) | (Math.round(g * 0.8) << 8) | Math.round(b * 0.85);
-}
-
-export function makeBlock(mat, hpx, variant) {
-  const pc = new PixelCanvas(32, 16 + hpx);
-  drawIsoBox(pc, 0, 0, 32, hpx, paintFor(mat, hpx, variant * 101 + hpx * 17 + mat.length * 3));
   return pc;
 }
 
-// 섬 아래쪽 흙 고드름
-export function makeStalactite(seed) {
-  const r = rng(seed * 31 + 7);
-  const pc = new PixelCanvas(32, 26);
-  const m = MATERIALS.under;
-  let x = 2;
-  while (x < 30) {
+function pathTop(seed) {
+  const r = rng(seed * 173 + 3);
+  const pc = new PixelCanvas(T, T);
+  pc.rect(0, 0, T, T, PAL.path);
+  for (let k = 0; k < 9; k++) {
+    const x = Math.floor(r() * T);
+    const y = Math.floor(r() * T);
+    pc.px(x, y, r() < 0.6 ? PAL.pathDark : PAL.pathLight);
+    if (r() < 0.3) pc.px(x + 1, y, PAL.pathDark);
+  }
+  return pc;
+}
+
+function stoneTop(seed) {
+  const r = rng(seed * 211 + 5);
+  const pc = new PixelCanvas(T, T);
+  pc.rect(0, 0, T, T, PAL.stone);
+  // 판석 이음매
+  pc.hline(0, T - 1, 7, PAL.stoneDark);
+  pc.vline(r() < 0.5 ? 5 : 10, 0, 6, PAL.stoneDark);
+  pc.vline(r() < 0.5 ? 3 : 12, 8, 15, PAL.stoneDark);
+  pc.hline(0, T - 1, 0, PAL.stoneLight);
+  pc.hline(0, T - 1, 8, PAL.stoneLight);
+  return pc;
+}
+
+// 앞면 (흙 벽돌). top=true면 위쪽에 풀 테두리
+function wallFace(seed, h, kind, top) {
+  const r = rng(seed * 97 + h * 13 + (top ? 1 : 0));
+  const pc = new PixelCanvas(T, h);
+  const base = kind === 'stone' ? PAL.stone : kind === 'under' ? PAL.under : PAL.dirt;
+  const dark = kind === 'stone' ? PAL.stoneDark : kind === 'under' ? PAL.underDark : PAL.dirtDark;
+  const light = kind === 'stone' ? PAL.stoneLight : kind === 'under' ? PAL.dirt : PAL.dirtLight;
+  pc.rect(0, 0, T, h, base);
+  // 벽돌 줄눈
+  const off = Math.floor(r() * 8);
+  for (let y = 4; y < h; y += 5) pc.hline(0, T - 1, y, dark);
+  for (let row = 0; row * 5 < h; row++) {
+    const x0 = (off + (row % 2) * 4) % 8;
+    for (let x = x0; x < T; x += 8) pc.vline(x, row * 5, Math.min(h - 1, row * 5 + 3), dark);
+  }
+  // 윗줄 하이라이트
+  pc.hline(0, T - 1, 0, light);
+  if (top && kind !== 'stone') {
+    // 풀이 앞면 위로 살짝 늘어짐
+    for (let x = 0; x < T; x++) {
+      const d = 1 + (r() < 0.3 ? 1 : 0);
+      for (let y = 0; y < d; y++) pc.px(x, y, y === 0 ? PAL.lipLight : PAL.lip);
+    }
+  }
+  return pc;
+}
+
+// 섬 밑바닥 들쭉날쭉한 흙 끝
+function fringe(seed) {
+  const r = rng(seed * 61 + 11);
+  const pc = new PixelCanvas(T, 10);
+  let x = 0;
+  while (x < T) {
     const w = 2 + Math.floor(r() * 3);
-    const len = 3 + Math.floor(r() * 9) + (r() < 0.25 ? 6 : 0);
-    for (let k = 0; k < w && x + k < 30; k++) {
-      const xx = x + k;
-      const mm = xx < 16 ? xx : 31 - xx;
-      const start = mm >> 1;
-      // 끝으로 갈수록 좁아짐
-      const taper = Math.abs(k - (w - 1) / 2) * 3;
-      const l = Math.max(1, len - taper);
-      for (let y = 0; y < l; y++) pc.px(xx, start + y, xx < 16 ? m.left : m.right);
+    const len = 2 + Math.floor(r() * 7);
+    for (let k = 0; k < w && x + k < T; k++) {
+      const l = Math.max(1, len - Math.abs(k - (w - 1) / 2) * 2);
+      for (let y = 0; y < l; y++) pc.px(x + k, y, y > l - 2 ? PAL.underDark : PAL.under);
     }
     x += w;
   }
   return pc;
 }
 
-export function registerTiles(atlas) {
-  for (const mat of Object.keys(MATERIALS)) {
-    for (let v = 0; v < VARIANTS; v++) {
-      atlas.add(`blk_${mat}_16_${v}`, makeBlock(mat, 16, v));
-      atlas.add(`blk_${mat}_8_${v}`, makeBlock(mat, 8, v));
+// 높은 땅 아래 그림자 (반투명)
+function shadowStrip(vertical = false) {
+  const w = vertical ? 4 : T;
+  const h = vertical ? T : 5;
+  const pc = new PixelCanvas(w, h);
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const d = vertical ? x / 4 : y / 5;
+      pc.px(x, y, 0x1d1b29, Math.round(70 * (1 - d)));
     }
+  return pc;
+}
+
+// 섬 가장자리 테두리 선
+function edgeLine(horizontal) {
+  const pc = horizontal ? new PixelCanvas(T, 1) : new PixelCanvas(1, T);
+  if (horizontal) pc.hline(0, T - 1, 0, PAL.grassEdge);
+  else pc.vline(0, 0, T - 1, PAL.grassEdge);
+  return pc;
+}
+
+export const TOPS = { grass: grassTop, path: pathTop, stone: stoneTop };
+
+export function registerTiles(atlas) {
+  for (let v = 0; v < VARIANTS; v++) {
+    for (const [name, fn] of Object.entries(TOPS)) atlas.add(`top_${name}_${v}`, fn(v + 1));
+    atlas.add(`top_grassH_${v}`, grassTop(v + 1, true));
+    for (const kind of ['dirt', 'stone', 'under']) {
+      atlas.add(`wall_${kind}_${LV}_${v}`, wallFace(v + 1, LV, kind, false));
+      atlas.add(`wall_${kind}_${LV / 2}_${v}`, wallFace(v + 1, LV / 2, kind, false));
+      atlas.add(`wallt_${kind}_${LV}_${v}`, wallFace(v + 1, LV, kind, true));
+      atlas.add(`wallt_${kind}_${LV / 2}_${v}`, wallFace(v + 1, LV / 2, kind, true));
+    }
+    atlas.add(`fringe_${v}`, fringe(v + 1));
   }
-  for (let v = 0; v < VARIANTS; v++) atlas.add(`stal_${v}`, makeStalactite(v));
+  atlas.add('shade_strip', shadowStrip());
+  atlas.add('shade_strip_v', shadowStrip(true));
+  atlas.add('edge_h', edgeLine(true));
+  atlas.add('edge_v', edgeLine(false));
 }
